@@ -1,0 +1,90 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'starform -v 1'",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=starform",
+                    "--package=starform"
+                ],
+                "filter": {
+                    "name": "starform",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-v", "1"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'starform -v 1 -t G3M/1'",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=starform",
+                    "--package=starform"
+                ],
+                "filter": {
+                    "name": "starform",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-v", "1", "-t", "G3M/1"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'starform -v 1 -t'",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=starform",
+                    "--package=starform"
+                ],
+                "filter": {
+                    "name": "starform",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-v", "1", "-t"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'starform'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=starform",
+                    "--package=starform"
+                ],
+                "filter": {
+                    "name": "starform",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

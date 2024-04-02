@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 structopt = "0.2.15"
+rand = "0.8"
+phf = { version = "0.11", features = ["macros"] }
+lazy_static = "1.4.0"

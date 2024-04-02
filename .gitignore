@@ -1,1 +1,5 @@
 /target/
+
+# macOS specific
+.DS_Store
+
