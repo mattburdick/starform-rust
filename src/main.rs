@@ -1,10 +1,40 @@
+pub mod accretion_disk;
 pub mod consts;
 pub mod random;
 mod star;
 pub mod star_system;
 use crate::star_system::StarSystem;
 
-// https://www.tenderisthebyte.com/blog/2019/05/08/parsing-cli-args-with-structopt/
+#[macro_use]
+extern crate lazy_static;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref LOGLEVEL: Mutex<u8> = Mutex::new(0); // Default log level
+}
+
+/// Macro to get the log level safely with error handling
+#[macro_export]
+macro_rules! get_log_level {
+    () => {
+        $crate::LOGLEVEL.lock().unwrap_or_else(|e| {
+            eprintln!("Error locking LOGLEVEL: {}", e);
+            e.into_inner() // Return the MutexGuard
+        })
+    };
+}
+/// Macro to set the log level safely
+#[macro_export]
+macro_rules! set_log_level {
+    ($new_level:expr) => {
+        if let Ok(mut log_level) = LOGLEVEL.lock() {
+            *log_level = $new_level;
+        } else {
+            eprintln!("Failed to lock LOGLEVEL for writing.");
+        }
+    };
+}
+
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -20,7 +50,7 @@ struct Opts {
 
     /// Indicates verbose output should be generated
     #[structopt(short = "v", help = "Enable verbose logging", default_value = "0")]
-    flag_verbose: u8,
+    loglevel: u8,
 
     /// Specifies the type of main star
     #[structopt(
@@ -34,9 +64,9 @@ struct Opts {
 
 fn main() {
     let opts = Opts::from_args();
+    set_log_level!(opts.loglevel);
 
-    // Use from_str if the -t option was used on the command line. Otherwise randomly generate
-    // the system
+    // If "-t" was used to specify the star type (e.g. G3M/1), generate the requested star. Otherwise randomly generate the system
     let star_system: StarSystem;
     if &opts.star_type != "random" {
         match StarSystem::from_str(&opts.star_type) {
@@ -47,11 +77,5 @@ fn main() {
         star_system = StarSystem::random();
     }
 
-    // if opts.flag_verbose >= 1 {
-    //     println!("Creating system with {} stars.", star_system.star_count);
-    // }
-
     println!("{}", star_system.to_string());
-
-    // println!("{:?}", opts);
 }

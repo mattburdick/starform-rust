@@ -28,7 +28,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug 'starform -v 1 -t G3M/1'",
+            "name": "Debug 'starform -v 3 -t G3M/1'",
             "env": {
                 "RUST_BACKTRACE": "1"
             },
@@ -43,7 +43,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-v", "1", "-t", "G3M/1"],
+            "args": ["-v", "3", "-t", "G3M/1"],
             "cwd": "${workspaceFolder}"
         },
         {

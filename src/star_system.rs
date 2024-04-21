@@ -1,25 +1,31 @@
 use rand::Rng;
 use std::fmt;
-// pub mod star;
+
 use crate::star::Star;
 
 pub struct StarSystem {
-    /// Each system has 1 or more stars
-    pub stars: Vec<Star>,
+    pub stars: Vec<Star>, // Each system has 1 or more stars
 }
 
+// Implement the Display trait for StarSystem
 impl fmt::Display for StarSystem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"                         SYSTEM  CHARACTERISTICS\n\n")?;
+        write!(f, "                         SYSTEM  CHARACTERISTICS\n\n")?;
         for (index, star) in self.stars.iter().enumerate() {
             if index == 0 {
-                write!(f,"        PRIMARY STAR\n")?;
+                write!(f, "        PRIMARY STAR\n")?;
                 write!(f, "{}", star)?;
                 if self.stars.len() > 1 {
-                    write!(f,"\nCompanion stars present at:\n")?;
+                    write!(f, "\nCompanion stars present at:\n")?;
                 }
             } else {
-                write!(f, "{:2} {} {:7.3} AU\n", index, star.stellar_classification(), star.orbital_radius)?;
+                write!(
+                    f,
+                    "{:2} {} {:7.3} AU\n",
+                    index,
+                    star.stellar_classification(),
+                    star.orbital_radius_in_au
+                )?;
             }
         }
 
@@ -27,12 +33,15 @@ impl fmt::Display for StarSystem {
     }
 }
 
+// Implement the StarSystem struct
 impl StarSystem {
     /// Parses command-line input from the "-t" flag
     pub fn from_str(input: &str) -> Result<StarSystem, &'static str> {
-        match Star::from_str(input) {
-            Ok(value) => {
-                let stars = vec![value];
+        let orbital_radius_in_au = 0.0; // These are never multiple star systems
+        match Star::from_str(input, orbital_radius_in_au) {
+            Ok(mut star) => {
+                star.accrete();
+                let stars = vec![star];
                 Ok(StarSystem { stars: stars })
             }
             Err(err) => Err(err),
@@ -61,16 +70,20 @@ impl StarSystem {
             _ => unreachable!("blah"),
         }
 
-        // Determine basic characteristics of all the stars:
+        // Create the stars
         let mut stars: Vec<Star> = Vec::new();
-        for _ in 0..star_count {
-            let mut star = Star::random();
-            if stars.len() > 0 {
-                star.orbital_radius = rand::thread_rng().gen_range(1.0..=150.0);
-            }
-            stars.push(star);
-        };
+        for index in 0..star_count {
+            let orbital_radius_in_au = if index == 0 {
+                0.0
+            } else {
+                rand::thread_rng().gen_range(1.0..=150.0) // 1 - 150 AU
+            };
 
-        StarSystem { stars: stars }
+            let mut star = Star::random(orbital_radius_in_au);
+            star.accrete();
+            stars.push(star);
+        }
+
+        StarSystem { stars }
     }
 }
