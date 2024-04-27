@@ -15,7 +15,7 @@ pub struct CentralMass {
     pub mass_in_sols: f64,
     pub mass_type: MassType,
     pub luminosity_in_sols: f64,
-    pub radius_in_sols: f64,
+    pub radius_in_au: f64,
 }
 
 impl CentralMass {
@@ -24,7 +24,7 @@ impl CentralMass {
             mass_in_sols: mass,
             mass_type: mass_type,
             luminosity_in_sols: luminosity,
-            radius_in_sols: radius,
+            radius_in_au: radius,
         }
     }
 }
@@ -50,10 +50,9 @@ impl Band {
     }
 
     fn can_merge_with(&self, other: &Band) -> bool {
-        self.dust_present == other.dust_present
-            && self.gas_present == other.gas_present
+        self.dust_present == other.dust_present && self.gas_present == other.gas_present
     }
-    fn insert_sorted(bands: &mut Vec<Band>, new_band: Band) {
+    fn insert(bands: &mut Vec<Band>, new_band: Band) {
         // Find the first position where 'inner_edge' is greater
         let index = bands
             .iter()
@@ -69,7 +68,7 @@ impl Band {
             let mut merged_count = 0;
             while i + 1 < bands.len() {
                 if bands[i].can_merge_with(&bands[i + 1]) {
-                    bands[i].outer_edge = bands[i + 1].outer_edge;  // Assume other's outer_edge is always greater
+                    bands[i].outer_edge = bands[i + 1].outer_edge; // Assume other's outer_edge is always greater
                     bands.remove(i + 1); // Remove the merged band
                     merged_count += 1;
                 } else {
@@ -80,7 +79,6 @@ impl Band {
             i += merged_count + 1;
         }
     }
-
 }
 
 //---------------------------  Body  ------------------------------------------
@@ -104,6 +102,13 @@ impl Default for Body {
 impl Body {
     pub fn new(a: f64, e: f64, mass: f64, mass_type: MassType) -> Self {
         Body { a, e, mass, mass_type }
+    }
+
+    fn insert(bodies: &mut Vec<Body>, new_body: Body) {
+        // Find the first position where 'a' is greater
+        let index = bodies.iter().position(|x| new_body.a < x.a).unwrap_or(bodies.len());
+
+        bodies.insert(index, new_body);
     }
 
     fn gravitational_effect_limits(a: f64, e: f64, mass: f64) -> (f64, f64, f64, f64) {
@@ -145,12 +150,11 @@ impl Body {
          *  star, update the corresponding star node for the node
          *  planet node:
          */
-
-        // if node.mass_type == MassType::Star {
-        // Example: Update additional star properties if needed
-        // node.star_ptr.orbit_radius = node.a;
-        // node.star_ptr.stell_mass_ratio = node.mass;
-        // }
+        if self.mass_type == MassType::Star {
+            // TODO: Implement this
+            // node.star_ptr.orbit_radius = node.a;
+            // node.star_ptr.stell_mass_ratio = node.mass;
+        }
 
         if *get_log_level!() >= 1 {
             let collision_type = match self.mass_type {
@@ -331,10 +335,6 @@ impl AccretionDisk {
 
             // Now, replace the original body back with the updated body.
             self.bodies[closest_neighbor] = body;
-
-            // let body = &mut self.bodies[closest_neighbor];
-            // body.collide_planets(injected_body);
-            // body.mass = self.accrete_dust(body.a, body.e, body.mass, crit_mass, dust_density);
         } else {
             /*
              *  The new planet won't collide with any other planet or star,
@@ -349,12 +349,8 @@ impl AccretionDisk {
                 println!("      Creating a new planet.\n");
             }
 
-            // TODO: this used to be sorted_list_insert
-            self.bodies.push(body);
+            Body::insert(&mut self.bodies, body);
         }
-
-        // Calculate the inner and outer effect limits of the injected mass
-        //let (r_inner, r_outer, _, _) = Self::gravitational_effect_limits(a, e, mass);
     }
 
     /*--------------------------------------------------------------------------*/
@@ -370,17 +366,26 @@ impl AccretionDisk {
             let old_mass = new_mass;
             new_mass = self.collect_dust(a, e, new_mass, crit_mass, dust_density);
 
-            if (new_mass - old_mass) <= (0.001 * old_mass) {
+            if (new_mass - old_mass) <= (0.0001 * old_mass) {
                 break;
             }
         }
 
         // Check if there is any dust remaining
+        self.dust_left = false;
         for band in &self.bands {
             if band.dust_present {
                 self.dust_left = true;
                 break;
             }
+        }
+
+        if *get_log_level!() >= 1 {
+            println!(
+                "  Built a planet of {:0.3} Earth masses at {:0.3} AU\n",
+                new_mass * consts::SUN_MASS_IN_EARTH_MASSES,
+                a
+            );
         }
 
         new_mass
@@ -409,7 +414,6 @@ impl AccretionDisk {
     /*    r_outer      Outermost gravitational effect limit of the object       */
     /*                                                                          */
     /*--------------------------------------------------------------------------*/
-    // TODO: talk a little about how rings can have dust and/or gas
     pub fn collect_dust(&mut self, a: f64, e: f64, mass: f64, crit_mass: f64, dust_density: f64) -> f64 {
         // The injected mass has inner and outer effect limits based on size of the mass, its orbit, and eccentricity.
         // We will accumulate mass from all the dust and gas bands into "mass".
@@ -418,8 +422,7 @@ impl AccretionDisk {
         // Calculate the inner and outer effect limits of the injected mass
         // The inner and outer effect limits are the distances from the primary star at which the mass can affect the dust bands.
         // The aphelion and parahelion influences determine the distance from the orbital plane at which the mass can affect the dust bands at aphelion and parahelion.
-        let (r_inner, r_outer, aphelion_influence, parahelion_influence) =
-            Body::gravitational_effect_limits(a, e, mass);
+        let (r_inner, r_outer, x_aphelion, x_parahelion) = Body::gravitational_effect_limits(a, e, mass);
 
         let mut new_mass = mass;
 
@@ -436,9 +439,13 @@ impl AccretionDisk {
                 continue;
             }
 
-            let gas_giant = new_mass >= crit_mass;
+            let collects_gas = new_mass >= crit_mass;
+            if (!collects_gas && !band.dust_present) || (collects_gas && !band.gas_present && !band.dust_present) {
+                // The mass is too small to pick up gas and the band has no dust.
+                continue;
+            }
 
-            let mass_density = if !gas_giant {
+            let mass_density = if !collects_gas {
                 dust_density
             } else {
                 // It's a gas giant, so the density of the dust is reduced.
@@ -448,7 +455,7 @@ impl AccretionDisk {
             print!(
                 "Protoplanet mass={:.2}{}, mass_density: {:.2}, non-giant density={:.2}\n",
                 new_mass,
-                if gas_giant { " (gas giant)" } else { "" },
+                if collects_gas { " (gas giant)" } else { "" },
                 mass_density,
                 dust_density
             );
@@ -461,7 +468,7 @@ impl AccretionDisk {
                 // Create a new band for the gap.
                 let mut gap_band = Band::new(band.inner_edge, r_inner);
                 gap_band.dust_present = band.dust_present;
-                gap_band.gas_present = true;
+                gap_band.gas_present = band.gas_present;
                 new_bands.push_back(gap_band);
 
                 // Move the inner edge out
@@ -471,33 +478,25 @@ impl AccretionDisk {
                 // Subtract the outer gap from the swept bandwidth and create a new band for the gap.
                 let mut gap_band = Band::new(r_outer, band.outer_edge);
                 gap_band.dust_present = band.dust_present;
-                gap_band.gas_present = true;
+                gap_band.gas_present = band.gas_present;
                 new_bands.push_back(gap_band);
 
                 // Move the outer edge in
                 band.outer_edge = r_outer;
             }
 
-            // TODO: what about the gas_present flag?
             band.dust_present = false;
+            band.gas_present = if collects_gas { false } else { band.gas_present };
             let swept_bandwidth = band.outer_edge - band.inner_edge;
 
-            // let temp1 = (r_outer - band.outer_edge).max(0.0);
-            // let temp2 = (band.inner_edge - r_inner).max(0.0);
-            // let width = swept_bandwidth - temp1 - temp2;
-            let volume = 2.0 * consts::PI * swept_bandwidth * (aphelion_influence + parahelion_influence);
-            // let volume = 4.0
-            //     * consts::PI
-            //     * a.powi(2)
-            //     * reduced_mass
-            //     * (1.0 - e * (band.outer_edge - band.inner_edge))
-            //     * width;
+            let volume = 2.0 * consts::PI * swept_bandwidth * (x_aphelion + x_parahelion);
+
             new_mass += volume * mass_density;
         }
 
         // Apply all changes here
         for band in new_bands {
-            Band::insert_sorted(&mut self.bands, band);
+            Band::insert(&mut self.bands, band);
         }
 
         Band::merge_neighbors(&mut self.bands);
@@ -741,8 +740,6 @@ impl AccretionDisk {
          *	primary than can be affected by a protoplanet with zero orbital
          *	eccentricity at the minimum distance from the primary:
          */
-        // let innermost_possible_planet = Body::new(planet_inner_bound, 0.0, consts::PROTOPLANET_MASS, MassType::Planet);
-        // let outermost_possible_planet = Body::new(planet_outer_bound, 0.0, consts::PROTOPLANET_MASS, MassType::Planet);
         let (disk_inner_bound, _, _, _) =
             Body::gravitational_effect_limits(planet_inner_bound, 0.0, consts::PROTOPLANET_MASS);
         let (_, mut disk_outer_bound, _, _) =
@@ -753,21 +750,9 @@ impl AccretionDisk {
             central_mass.mass_type,
         ));
 
-        // let (disk_inner_bound, disk_outer_bound, aphelion_influence, parahelion_influence) =
-        // Self::gravitational_effect_limits(planet_inner_bound, e, injected_mass);
-
-        // TODO: in starform, dist_from_primary for a central planet when calling "stell_dust_limit" is the radius of the planet
-        // let mut disk_outer_bound =
-        //     Self::stell_dust_limit(central_mass.mass_in_sols, 0.0, central_mass.mass_type);
-        // disk_outer_bound = disk_outer_bound.min(Self::outer_effect_limit(
-        //     planet_outer_bound,
-        //     0.0,
-        //     consts::PROTOPLANET_MASS,
-        // ));
-
         // Init the bands of dust / gas in the accretion disk
         let mut bands: Vec<Band> = Vec::new();
-        bands.push(Band::new(disk_inner_bound, disk_outer_bound));
+        Band::insert(&mut bands, Band::new(disk_inner_bound, disk_outer_bound));
 
         AccretionDisk {
             central_mass,
@@ -802,8 +787,8 @@ impl AccretionDisk {
              *	until all dust in the system has been accreted.
              */
 
-            let bound1 = band.inner_edge.max(self.planet_inner_bound);
-            let bound2 = band.outer_edge.min(self.planet_outer_bound);
+            let bound1 = band.inner_edge.max(self.planet_inner_bound).min(self.planet_outer_bound);
+            let bound2 = band.outer_edge.min(self.planet_outer_bound).max(self.planet_inner_bound);
             if self.planet_inner_bound > self.planet_outer_bound {
                 panic!("ERROR: planet inner bound is greater than outer bound\n");
             }

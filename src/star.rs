@@ -212,7 +212,7 @@ pub struct Star {
     pub spectral_number: i32,              // Example: 3
     pub orbital_radius_in_au: f64,
     pub mass_in_sols: f64,
-    pub radius_in_sols: f64,
+    pub radius_in_au: f64,
     pub luminosity_in_sols: f64,
     pub age: f64,
     pub main_seq_life: f64,
@@ -228,8 +228,8 @@ impl fmt::Display for Star {
         write!(
             f,
             "Stellar radius:              {:>7.3} sols ({:>0.4} AU)\n",
-            self.radius_in_sols,
-            self.radius_in_sols * consts::SOLAR_RADII_PER_AU
+            self.radius_in_au,
+            self.radius_in_au * consts::SOLAR_RADII_PER_AU
         )?;
         write!(
             f,
@@ -312,7 +312,7 @@ impl Star {
     /// This is eq. 3.53 from "Astrophysics I" by Bowers and Deeming.
     /// The mass_ratio is unitless and is a ratio of the stellar mass to that
     /// of the Sun.  The stellar radius returned is in units of AU.
-    fn star_radius_in_sols(
+    fn star_radius_in_au(
         mass_in_sols: f64,
         luminosity_class: LuminosityClass,
         spectral_class: char,
@@ -343,7 +343,7 @@ impl Star {
             LuminosityClass::WhiteDwarf => random::about(0.02, 0.005),
         };
 
-        Ok(radius_in_sols)
+        Ok(radius_in_sols * consts::SOLAR_RADII_PER_AU)
     }
 
     /// Both the main sequence lifetime and the age returned are in units of
@@ -380,8 +380,8 @@ impl Star {
         }
         let spectral_number = spectral_number + spectral_number_adjustment;
 
-        let radius_in_sols = Self::star_radius_in_sols(mass_in_sols, luminosity_class, spectral_class)
-            .expect("Star::star_radius failed");
+        let radius_in_au =
+            Self::star_radius_in_au(mass_in_sols, luminosity_class, spectral_class).expect("Star::star_radius failed");
 
         let main_seq_life = (1.1E10_f64 * (mass_in_sols / luminosity_in_sols)).min(1.0E10_f64);
         let age = Self::star_age(1.0E6_f64.max(1.1E10 * (mass_in_sols / luminosity_in_sols)));
@@ -391,7 +391,7 @@ impl Star {
         (
             mass_in_sols,
             luminosity_in_sols,
-            radius_in_sols,
+            radius_in_au,
             spectral_number,
             r_ecosphere,
             r_greenhouse,
@@ -493,10 +493,10 @@ impl Star {
         orbital_radius_in_au: f64,
         mass_in_sols: f64,
     ) -> Self {
-        let (mass, luminosity_in_sols, radius_in_sols, spectral_number, r_ecosphere, r_greenhouse, age, main_seq_life) =
+        let (mass, luminosity_in_sols, radius_in_au, spectral_number, r_ecosphere, r_greenhouse, age, main_seq_life) =
             Self::calculate_stellar_stats(mass_in_sols, luminosity_class, spectral_class, spectral_number);
 
-        let central_mass = CentralMass::new(MassType::Star, mass_in_sols, luminosity_in_sols, radius_in_sols);
+        let central_mass = CentralMass::new(MassType::Star, mass_in_sols, luminosity_in_sols, radius_in_au);
         let accretion_disk = AccretionDisk::new(central_mass, orbital_radius_in_au);
 
         Star {
@@ -509,7 +509,7 @@ impl Star {
             main_seq_life,
             r_ecosphere,
             luminosity_in_sols,
-            radius_in_sols,
+            radius_in_au,
             r_greenhouse,
             accretion_disk,
         }
