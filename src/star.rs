@@ -1,12 +1,14 @@
+// src/star.rs
+
 use lazy_static::lazy_static;
 use rand::Rng;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::accretion_disk::AccretionDisk;
-use crate::accretion_disk::CentralMass;
-use crate::accretion_disk::MassType;
 use crate::{consts, get_log_level, random};
+use crate::accretion_disk::AccretionDisk;
+use crate::body::Body;
+use crate::types::MassType;
 
 lazy_static! {
     #[rustfmt::skip]
@@ -167,16 +169,16 @@ pub enum LuminosityClass {
 }
 
 impl LuminosityClass {
-    fn to_char(&self) -> char {
-        match self {
-            LuminosityClass::Supergiant => 'S',
-            LuminosityClass::BrightGiant => 'B',
-            LuminosityClass::Giant => 'G',
-            LuminosityClass::Subgiant => 'g',
-            LuminosityClass::MainSequence => 'M',
-            LuminosityClass::WhiteDwarf => 'D',
-        }
-    }
+    // fn to_char(&self) -> char {
+    //     match self {
+    //         LuminosityClass::Supergiant => 'S',
+    //         LuminosityClass::BrightGiant => 'B',
+    //         LuminosityClass::Giant => 'G',
+    //         LuminosityClass::Subgiant => 'g',
+    //         LuminosityClass::MainSequence => 'M',
+    //         LuminosityClass::WhiteDwarf => 'D',
+    //     }
+    // }
     fn to_string(&self) -> &'static str {
         match self {
             LuminosityClass::Supergiant => "I (supergiant)",
@@ -400,14 +402,22 @@ impl Star {
         )
     }
 
-    /// Parses command-line input from the "-t" flag
-    /// "G3M/3"
-    /// yields
-    ///   spectral class G
-    ///   spectral number 3
-    ///   luminosity id M
-    ///   Orbit 3
+    /// Parses the specification of a star from a command-line input string, typically provided with the "-t" flag.
+    ///
+    /// This function interprets the input string to extract and construct a `Star` object. The input format
+    /// is expected to be "SpectralClassSpectralNumber/LuminosityClassOrbit", where:
+    /// - `SpectralClass` is a single character (e.g., 'G').
+    /// - `SpectralNumber` is an integer (e.g., 3).
+    /// - `LuminosityClass` is a single character (e.g., 'M').
+    ///
+    /// # Parameters
+    /// - `input`: A string slice representing the star's spectral and luminosity information.
+    /// - `orbital_radius_in_au`: The orbital radius in astronomical units, not parsed from the input but provided separately.
+    ///
+    /// # Returns
+    /// Returns a `Result
     pub fn from_str(input: &str, orbital_radius_in_au: f64) -> Result<Star, &'static str> {
+        // TODO: remove the /orbit part of the input string
         let parts: Vec<&str> = input.split('/').collect();
         if parts.len() != 2 {
             return Err("Input does not match the expected format.");
@@ -447,32 +457,21 @@ impl Star {
         // giants or supergiants.  This function reflects those percentages.  If
         // you are interested in larger stars, you can always generate them
         //  using the '-t' flag!
-        let luminosity_class: LuminosityClass;
-        match rand::thread_rng().gen_range(1..=100) {
+        let luminosity_class = match rand::thread_rng().gen_range(1..=100) {
             1..=90 => {
-                // 90% main sequence
-                // luminosity_id = 'M';
-                luminosity_class = LuminosityClass::MainSequence;
+                LuminosityClass::MainSequence // 90% main sequence
             }
             91..=99 => {
-                // 9% white dwarf
-                // luminosity_id = 'D';
-                luminosity_class = LuminosityClass::WhiteDwarf;
+                LuminosityClass::WhiteDwarf // 9% white dwarf
             }
             _ => {
                 // 1% giants and supergiants
                 match rand::thread_rng().gen_range(1..=100) {
-                    1..=70 => {
-                        // luminosity_id = 'G'; //giant
-                        luminosity_class = LuminosityClass::Giant;
-                    }
-                    _ => {
-                        // luminosity_id = 'S'; // supergiant
-                        luminosity_class = LuminosityClass::Supergiant;
-                    }
+                    1..=70 => LuminosityClass::Giant,
+                    _ => LuminosityClass::Supergiant,
                 }
             }
-        }
+        };
 
         // Get a random SpectralInfo entry from one of the STARINFO buckets: main sequence, giant, supergiant, etc.
         let spectral_info = SpectralInfo::get_random(luminosity_class);
@@ -491,13 +490,18 @@ impl Star {
         luminosity_class: LuminosityClass,
         spectral_number: i32,
         orbital_radius_in_au: f64,
-        mass_in_sols: f64,
+        max_mass_for_class: f64,
     ) -> Self {
         let (mass, luminosity_in_sols, radius_in_au, spectral_number, r_ecosphere, r_greenhouse, age, main_seq_life) =
-            Self::calculate_stellar_stats(mass_in_sols, luminosity_class, spectral_class, spectral_number);
+            Self::calculate_stellar_stats(max_mass_for_class, luminosity_class, spectral_class, spectral_number);
+        let e = if orbital_radius_in_au == 0.0 {
+            0.0
+        } else {
+            AccretionDisk::random_eccentricity()
+        };
 
-        let central_mass = CentralMass::new(MassType::Star, mass_in_sols, luminosity_in_sols, radius_in_au);
-        let accretion_disk = AccretionDisk::new(central_mass, orbital_radius_in_au);
+        let star = Body::new(orbital_radius_in_au, e, mass, MassType::Star);
+        let accretion_disk = AccretionDisk::new(star, luminosity_in_sols, orbital_radius_in_au);
 
         Star {
             spectral_class,

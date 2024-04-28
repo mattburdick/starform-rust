@@ -49,6 +49,27 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug 'starform -v 1 -t G3M/1'",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=starform",
+                    "--package=starform"
+                ],
+                "filter": {
+                    "name": "starform",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-v", "1", "-t", "G3M/1"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug 'starform -v 1 -t'",
             "env": {
                 "RUST_BACKTRACE": "1"

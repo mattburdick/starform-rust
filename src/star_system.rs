@@ -35,53 +35,71 @@ impl fmt::Display for StarSystem {
 
 // Implement the StarSystem struct
 impl StarSystem {
-    /// Parses command-line input from the "-t" flag
-    pub fn from_str(input: &str) -> Result<StarSystem, &'static str> {
-        let orbital_radius_in_au = 0.0; // These are never multiple star systems
-        match Star::from_str(input, orbital_radius_in_au) {
-            Ok(mut star) => {
-                star.accrete();
-                let stars = vec![star];
-                Ok(StarSystem { stars: stars })
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    /// Randomly-generated systems will have 1 - 4 stars.
-    /// The percentage of double, triple, and quadruple star systems is basically pulled from a hat - the
-    /// best estimates of the actual frequencies of these kind of systems I could find said only that "more
-    /// than half of all stars are members of multiple star systems".
-    pub fn random() -> Self {
-        let star_count;
-        match rand::thread_rng().gen_range(1..=100) {
-            1..=45 => {
-                star_count = 1;
-            }
-            46..=80 => {
-                star_count = 2;
-            }
-            81..=95 => {
-                star_count = 3;
-            }
-            96..=100 => {
-                star_count = 4;
-            }
-            _ => unreachable!("blah"),
-        }
-
-        // Create the stars
+    /// Creates a new `StarSystem` either from a specified star type or randomly generates multiple stars.
+    ///
+    /// This function generates a `StarSystem` based on the `star_type` input. If `star_type` is empty,
+    /// it randomly decides the number of stars (1 to 4) based on predefined probabilities and generates each
+    /// randomly with varying orbital radii. If `star_type` is provided, it attempts to create a star system
+    /// with a single star matching the specified type. It handles errors in star creation by panicking with
+    /// an error message.
+    ///
+    /// # Parameters
+    /// - `star_type`: A string slice that optionally specifies the type of star to create. If empty,
+    ///   the function generates a random star system. This string typically matches command-line input.
+    ///
+    /// # Panics
+    /// - The function panics if it fails to parse the provided `star_type` into a valid star configuration.
+    ///
+    /// # Examples
+    /// ```
+    /// // Generate a random star system
+    /// let random_system = StarSystem::new("");
+    ///
+    /// // Generate a specific type of star system
+    /// let specific_system = StarSystem::new("G3M/1");
+    /// ```
+    ///
+    /// # Notes
+    /// - The random generation of the number of stars mimics real astronomical data suggesting that
+    ///   more than half of all stars are members of multiple star systems. The exact distribution used
+    ///   here (45% single, 35% binary, 15% trinary, 5% quaternary) is a simplification.
+    pub fn new(star_type: &str) -> Self {
         let mut stars: Vec<Star> = Vec::new();
-        for index in 0..star_count {
-            let orbital_radius_in_au = if index == 0 {
-                0.0
-            } else {
-                rand::thread_rng().gen_range(1.0..=150.0) // 1 - 150 AU
+
+        // If "-t" was used to specify the star type (e.g. G3M/1), generate the requested star. Otherwise randomly generate the system
+        if star_type.is_empty() {
+            // Create a star system with 1 to 4 stars
+            let star_count = match rand::thread_rng().gen_range(1..=100) {
+                1..=45 => 1,
+                46..=80 => 2,
+                81..=95 => 3,
+                _ => 4,
             };
 
-            let mut star = Star::random(orbital_radius_in_au);
-            star.accrete();
+            for index in 0..star_count {
+                let orbital_radius_in_au = if index == 0 {
+                    0.0
+                } else {
+                    rand::thread_rng().gen_range(1.0..=150.0) // 1 - 150 AU
+                };
+
+                stars.push(Star::random(orbital_radius_in_au));
+            }
+        } else {
+            // Create a star system with one star based on the description in the "-t" flag
+            let orbital_radius_in_au = 0.0;
+            let star;
+
+            match Star::from_str(star_type, orbital_radius_in_au) {
+                Ok(value) => star = value,
+                Err(err) => panic!("Error: {}", err),
+            }
+
             stars.push(star);
+        }
+
+        for star in &mut stars {
+            star.accrete();
         }
 
         StarSystem { stars }
