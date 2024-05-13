@@ -1,7 +1,7 @@
 use rand::Rng;
 use std::fmt;
 
-use crate::star::Star;
+use crate::{get_log_level, log, star::Star};
 
 pub struct StarSystem {
     pub stars: Vec<Star>, // Each system has 1 or more stars
@@ -65,6 +65,7 @@ impl StarSystem {
     ///   here (45% single, 35% binary, 15% trinary, 5% quaternary) is a simplification.
     pub fn new(star_type: &str) -> Self {
         let mut stars: Vec<Star> = Vec::new();
+        let log_level = *get_log_level!();
 
         // If "-t" was used to specify the star type (e.g. G3M/1), generate the requested star. Otherwise randomly generate the system
         if star_type.is_empty() {
@@ -83,7 +84,15 @@ impl StarSystem {
                     rand::thread_rng().gen_range(1.0..=150.0) // 1 - 150 AU
                 };
 
-                stars.push(Star::random(orbital_radius_in_au));
+                let star = Star::random(orbital_radius_in_au);
+                log!(
+                    log_level,
+                    1,
+                    "Random star: {:.2} solar masses - {}",
+                    star.mass_in_sols,
+                    star.stellar_classification()
+                );
+                stars.push(star);
             }
         } else {
             // Create a star system with one star based on the description in the "-t" flag
@@ -95,6 +104,13 @@ impl StarSystem {
                 Err(err) => panic!("Error: {}", err),
             }
 
+            log!(
+                log_level,
+                1,
+                "Star: {:.2} solar masses - {}",
+                star.mass_in_sols,
+                star.stellar_classification()
+            );
             stars.push(star);
         }
 

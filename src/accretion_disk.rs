@@ -1,6 +1,6 @@
 // src/accretion_disk.rs
 
-use crate::{consts, get_log_level};
+use crate::{consts, get_log_level, log};
 use rand::Rng;
 use std::{collections::VecDeque, fmt};
 
@@ -15,6 +15,23 @@ pub struct Band {
     gas_present: bool,
     inner_edge: f64,
     outer_edge: f64,
+}
+
+impl fmt::Display for Band {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let distance = (self.outer_edge - self.inner_edge).round() as usize;
+        let numchars = if distance >= 4 { distance - 4 } else { 0 }; // Subtract 4 to account for the two characters at the ends
+
+        // Use "-" if the band has dust and gas. Otherwise, use "." (just gas)
+        let output_char = if self.dust_present { "-" } else { "." };
+
+        // Repeat the chosen character for each AU between the previous planet and this band
+        if distance > 0 {
+            write!(f, "{}{:.1}", output_char.repeat(numchars), self.outer_edge)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Band {
@@ -76,14 +93,75 @@ pub struct AccretionDisk {
 
 impl fmt::Display for AccretionDisk {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}\n", self)
+        for body in &self.bodies {
+            let distance = body.a.round() as usize;
+            if distance > 0 {
+                write!(
+                    f,
+                    "{}{:.3}",
+                    " ".repeat(distance),
+                    body.mass * consts::SUN_MASS_IN_EARTH_MASSES
+                )?;
+            }
+        }
+        write!(f, "\n")?;
+
+        for body in &self.bodies {
+            let distance = body.a.round() as usize;
+            if distance > 0 {
+                write!(f, "{}o\n", " ".repeat(distance))?;
+            }
+        }
+        write!(f, "\n")?;
+
+        for band in &self.bands {
+            write!(f, "{}", band)?;
+        }
+        write!(f, "\n")?;
+
+        Ok(())
     }
 }
 
 impl AccretionDisk {
     pub fn random_eccentricity() -> f64 {
-        let random_num: f64 = rand::thread_rng().gen_range(0.0001..=1.0);
-        1.0 - random_num.powf(consts::ECCENTRICITY_COEFF)
+        let random_number_between_0_and_1: f64 = rand::thread_rng().gen_range(0.0001..=1.0);
+        1.0 - (1.0 - random_number_between_0_and_1).powf(consts::ECCENTRICITY_COEFF)
+    }
+
+    /// Calculates the dust density at a given orbital radius around a star.
+    ///
+    /// This function computes the dust density based on the stellar mass and the distance from the star,
+    /// using an exponential decay model. The formula incorporates predefined constants to adjust the
+    /// model based on empirical or theoretical data.
+    ///
+    /// # Parameters
+    /// - `stellar_mass`: The mass of the star in solar masses.
+    /// - `a`: Orbital radius in astronomical units (AU), the distance from the star at which the dust density is calculated.
+    ///
+    /// # Returns
+    /// Returns the dust density at the specified orbital radius as a floating-point number.
+    ///
+    /// # Formula
+    /// The dust density \( d \) at a distance \( a \) from a star of mass \( m \) is calculated as:
+    /// \[
+    /// \rho_{d} = A \cdot \sqrt{M_{\odot}} \cdot e^{-\alpha \cdot a^{1/n}}
+    /// \]
+    /// where:
+    /// - \( A \) is the dust density coefficient (`DUST_DENSITY_COEFF`),
+    /// - \( \alpha \) is a decay constant that influences how quickly the dust density decreases with distance (`ALPHA`),
+    /// - \( n \) affects the curvature of the decay curve (`N`).
+    ///
+    /// # Examples
+    /// ```
+    /// let stellar_mass = 1.0;  // mass of the star in solar masses
+    /// let orbital_radius = 5.0;  // distance from the star in AU
+    /// let dust_density = dust_density(stellar_mass, orbital_radius);
+    /// println!("Dust density at {} AU: {}", orbital_radius, dust_density);
+    /// ```
+    pub fn dust_density(stellar_mass: f64, a: f64) -> f64 {
+        // A = consts::DUST_DENSITY_COEFF
+        consts::DUST_DENSITY_COEFF * stellar_mass.sqrt() * f64::exp(-consts::ALPHA * a.powf(1.0 / consts::N))
     }
 
     // Calculates the outer limit of gas & dust accretion disks from a planet or star
@@ -104,14 +182,47 @@ impl AccretionDisk {
 
     fn dust_available(&self, inside_range: f64, outside_range: f64) -> bool {
         for band in &self.bands {
-            if band.outer_edge < inside_range && band.dust_present {
-                return true;
-            } else if band.inner_edge < outside_range && band.dust_present {
+            if !band.dust_present {
+                continue;
+            }
+            if (outside_range.min(band.outer_edge) - inside_range.max(band.inner_edge)) > 0.0 {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// Calculates the volume of a cylindrical shell (annular cylinder) given its dimensions.
+    ///
+    /// The volume is determined based on the inner and outer radii of the cylinder and the sum of xa and xp,
+    /// the gravitational influence of a mass at aphelion and perihelion respectively.
+    ///
+    /// # Parameters
+    /// - `r_inner`: The inner radius of the cylindrical shell in units (e.g., meters).
+    /// - `r_outer`: The outer radius of the cylindrical shell in the same units as `r_inner`.
+    /// - `xp`: Radius of a mass's gravitational influence at perihelion.
+    /// - `xa`: Radius of a mass's gravitational influence at aphelion.
+    ///
+    /// # Returns
+    /// Returns the volume of the cylindrical shell in cubic units, calculated using the formula:
+    /// \[
+    /// V=\pi \cdot (x_{p} + x_{a}) \cdot (r_{a}^2 - r_{p}^2)
+    /// \\
+    /// \text{Where a=aphelion and p=perihelion}
+    /// \]
+    ///
+    /// # Examples
+    /// ```
+    /// let volume = volume(2.0, 3.0, 1.0, 1.0);
+    /// println!("Volume of the cylindrical shell: {}", volume);
+    /// ```
+    ///
+    /// This calculates the volume of a cylindrical shell with an inner radius of 2 units, an outer radius of 3 units,
+    /// and a total height of 2 units.
+    pub fn volume(r_inner: f64, r_outer: f64, xp: f64, xa: f64) -> f64 {
+        let height = xa + xp; // Total height of the cylindrical shell
+        consts::PI * height * (r_outer.powf(2.0) - r_inner.powf(2.0)) // Calculating the volume
     }
 
     /*--------------------------------------------------------------------------*/
@@ -178,71 +289,21 @@ impl AccretionDisk {
     }
 
     /*--------------------------------------------------------------------------*/
-    /*  coalesce_planetesimals checks if the protoplanet described by a, e,     */
-    /*  mass, etc, crosses the orbits of any planets already generated.  If so, */
-    /*  the masses of the two planets are added (therefore assuming a perfectly */
-    /*  inelastic collision) and an orbit for the resulting new planet          */
-    /*  computed.  The new mass is then allowed to accrete more dust.           */
-    /*  If no collision with another planet occurrs, a new planet is created    */
-    /*  its statistics filled in with those of the protoplanet.                 */
-    /*--------------------------------------------------------------------------*/
-    fn coalesce_planetesimals(
-        &mut self,
-        injected_body: &Body,
-        crit_mass: f64,
-        stell_luminosity_ratio: f64,
-        mut mass_type: MassType,
-        dust_density: f64,
-    ) {
-        let log_level = *get_log_level!();
-        if injected_body.mass <= consts::TRIVIAL_MASS {
-            if log_level >= 1 {
-                println!(
-                    "  Trivial mass ({:.3} Earth masses) - not adding it.\n",
-                    injected_body.mass * consts::SUN_MASS_IN_EARTH_MASSES
-                );
-            }
-            return;
-        }
-
-        let (found_collision, closest_neighbor) = self.find_collision(injected_body.a, injected_body.e);
-        if found_collision {
-            // We must temporarily take ownership of the body to avoid borrowing issues.
-            let mut body = std::mem::replace(&mut self.bodies[closest_neighbor], Body::default());
-            body.collide(injected_body);
-            body.mass = self.accrete_dust(body, stell_luminosity_ratio, dust_density);
-
-            // Now, replace the original body back with the updated body.
-            self.bodies[closest_neighbor] = body;
-        } else {
-            /*
-             *  The new planet won't collide with any other planet or star,
-             *  so allocate space for it and insert it into the system's
-             *  linked list:
-             */
-            if injected_body.mass >= crit_mass {
-                mass_type = MassType::GasGiant;
-            }
-            let body = Body::new(injected_body.a, injected_body.e, injected_body.mass, mass_type);
-            if log_level >= 3 {
-                println!("      Creating a new planet.\n");
-            }
-
-            Body::insert(&mut self.bodies, body);
-        }
-    }
-
-    /*--------------------------------------------------------------------------*/
     /*  Given a mass at a particular orbit, this function repeatedly calls      */
     /*  'collect_dust' to sweep up any dust and gas it can.  Each successive    */
     /*  call to 'collect_dust' is done with the original mass plus additional   */
     /*  mass from sweeping up dust previously.  The process stops when the mass */
     /*  accumulation slows.                                                     */
     /*--------------------------------------------------------------------------*/
-    fn accrete_dust(&mut self, mut body: Body, crit_mass: f64, dust_density: f64) -> f64 {
+    fn accrete_dust(&mut self, mut body: Body) -> f64 {
+        let mut loop_count = 0;
         loop {
+            loop_count += 1;
             let old_mass = body.mass;
-            body.mass = self.collect_dust(body, crit_mass, dust_density);
+            body.mass = self.collect_dust(body);
+            if body.mass >= body.critical_mass_limit {
+                body.mass_type = MassType::GasGiant;
+            }
 
             if (body.mass - old_mass) <= (0.0001 * old_mass) {
                 break;
@@ -258,11 +319,27 @@ impl AccretionDisk {
             }
         }
 
-        if *get_log_level!() >= 1 {
-            println!(
-                "  Built a planet of {:0.3} Earth masses at {:0.3} AU\n",
-                body.mass * consts::SUN_MASS_IN_EARTH_MASSES,
-                body.a
+        let log_level = *get_log_level!();
+        log!(
+            log_level,
+            1,
+            "Accreted a {} of {:.3} Earth masses at {:.3} AU over {loop_count} iterations (critical mass limit: {:.3} Earth masses)",
+            body.mass_type,
+            body.mass * consts::SUN_MASS_IN_EARTH_MASSES,
+            body.a,
+            body.critical_mass_limit * consts::SUN_MASS_IN_EARTH_MASSES
+        );
+
+        if log_level >= 2 {
+            let (r_inner, r_outer, xp, xa) = Body::gravitational_effect_limits(body.a, body.e, body.mass);
+            log!(
+                log_level,
+                2,
+                "r_inner={:.2}, r_outer={:.2}, xp={:.2}, xa={:.2}",
+                r_inner,
+                r_outer,
+                xp,
+                xa
             );
         }
 
@@ -292,15 +369,14 @@ impl AccretionDisk {
     /*    r_outer      Outermost gravitational effect limit of the object       */
     /*                                                                          */
     /*--------------------------------------------------------------------------*/
-    pub fn collect_dust(&mut self, protoplanet: Body, crit_mass: f64, dust_density: f64) -> f64 {
+    pub fn collect_dust(&mut self, protoplanet: Body) -> f64 {
         // The injected mass has inner and outer effect limits based on size of the mass, its orbit, and eccentricity.
         // We will accumulate mass from all the dust and gas bands into "mass".
-        let log_level = *get_log_level!();
 
         // Calculate the inner and outer effect limits of the injected mass
         // The inner and outer effect limits are the distances from the primary star at which the mass can affect the dust bands.
-        // The aphelion and parahelion influences determine the distance from the orbital plane at which the mass can affect the dust bands at aphelion and parahelion.
-        let (r_inner, r_outer, x_aphelion, x_parahelion) =
+        // xa and xp represent the aphelion and parahelion distances from the orbital plane at which the mass can affect the dust bands.
+        let (r_inner, r_outer, xp, xa) =
             Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass);
 
         let mut new_mass = protoplanet.mass;
@@ -318,28 +394,11 @@ impl AccretionDisk {
                 continue;
             }
 
-            let collects_gas = new_mass >= crit_mass;
-            if (!collects_gas && !band.dust_present) || (collects_gas && !band.gas_present && !band.dust_present) {
+            if (!protoplanet.collects_gas(new_mass) && !band.dust_present)
+                || (protoplanet.collects_gas(new_mass) && !band.gas_present && !band.dust_present)
+            {
                 // The mass is too small to pick up gas and the band has no dust.
                 continue;
-            }
-
-            let mass_density = if !collects_gas {
-                dust_density
-            } else {
-                // It's a gas giant, so the density of the dust is reduced.
-                // TODO: I'm not sure what this formula is doing.
-                consts::K * dust_density / (1.0 + (crit_mass / new_mass).sqrt() * (consts::K - 1.0))
-            };
-
-            if log_level >= 3 {
-                println!(
-                    "Protoplanet mass={:.2}{}, mass_density: {:.2}, non-giant density={:.2}",
-                    new_mass,
-                    if collects_gas { " (gas giant)" } else { "" },
-                    mass_density,
-                    dust_density
-                );
             }
 
             // Start by assuming the entire bandwidth is swept up. We'll subtract the gaps later, recalling that they can be negative.
@@ -368,12 +427,14 @@ impl AccretionDisk {
             }
 
             band.dust_present = false;
-            band.gas_present = if collects_gas { false } else { band.gas_present };
-            let swept_bandwidth = band.outer_edge - band.inner_edge;
+            band.gas_present = if protoplanet.collects_gas(new_mass) {
+                false
+            } else {
+                band.gas_present
+            };
 
-            let volume = 2.0 * consts::PI * swept_bandwidth * (x_aphelion + x_parahelion);
-
-            new_mass += volume * mass_density;
+            let volume = Self::volume(r_inner, r_outer, xp, xa);
+            new_mass += volume * protoplanet.local_density(new_mass);
         }
 
         // Apply all changes here
@@ -411,6 +472,8 @@ impl AccretionDisk {
             Body::gravitational_effect_limits(planet_inner_bound, 0.0, consts::PROTOPLANET_MASS);
         let (_, mut disk_outer_bound, _, _) =
             Body::gravitational_effect_limits(planet_outer_bound, 0.0, consts::PROTOPLANET_MASS);
+
+        // Depending on the type of star, the outer limit of the dust cloud may be less
         disk_outer_bound = disk_outer_bound.min(Self::stell_dust_limit(central_mass.mass, 0.0, central_mass.mass_type));
 
         // Init the bands of dust / gas in the accretion disk
@@ -463,50 +526,62 @@ impl AccretionDisk {
                 panic!("ERROR: planet inner bound is greater than outer bound\n");
             }
             let a: f64 = rand::thread_rng().gen_range(bound1..=bound2);
-            let mut protoplanet = Body::new(a, e, consts::PROTOPLANET_MASS, MassType::Planet);
+
+            // Create a protoplanet annotated with the dust density and critical mass limit at this distance from the primary
+            let mut protoplanet = Body::new(
+                a,
+                e,
+                consts::PROTOPLANET_MASS,
+                MassType::Planet,
+                Self::dust_density(self.central_mass.mass, a),
+                Body::critical_limit(a, e, self.luminosity),
+            );
             let (eff_inner_bound, eff_outer_bound, _, _) =
                 Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass);
 
-            if self.dust_available(eff_inner_bound, eff_outer_bound) {
-                if log_level >= 2 {
-                    println!(
-                        "  Injecting proto-{} ({:4.2} AU)",
-                        if self.central_mass.mass_type == MassType::Star {
-                            "planet"
-                        } else {
-                            "moon"
-                        },
-                        a
-                    );
-                }
-
-                let mut dust_density = consts::DUST_DENSITY_COEFF
-                    * self.central_mass.mass.sqrt()
-                    * (consts::ALPHA * -1.0 * a.powf(1.0 / consts::N)).exp();
-                /*
-                 *	Assume that dust is ten times more dense around planets:
-                 */
-                if self.central_mass.mass_type == MassType::Planet {
-                    dust_density = dust_density * 10.0;
-                }
-
-                let crit_mass = Body::critical_limit(a, e, self.luminosity);
-                protoplanet.mass = self.accrete_dust(protoplanet, crit_mass, dust_density);
-                if (protoplanet.mass != 0.0) && (protoplanet.mass != consts::PROTOPLANET_MASS) {
-                    self.coalesce_planetesimals(
-                        &protoplanet,
-                        crit_mass,
-                        self.luminosity,
-                        self.central_mass.mass_type,
-                        dust_density,
-                    );
-                } else if log_level >= 2 {
-                    // TODO: what does this mean?
-                    println!("    Neighbor too near ({:.2} AU).", a);
-                }
-            } else if log_level >= 2 {
-                println!("    Not enough dust at {a} AU.\n");
+            if !self.dust_available(eff_inner_bound, eff_outer_bound) {
+                // This shouldn't happen as we've already checked for dust within gravitational effect range
+                panic!("ERROR: found no dust in range of protoplanet");
             }
+            log!(
+                log_level,
+                2,
+                "    Injecting proto-{} at {:.2} AU.",
+                protoplanet.mass_type,
+                protoplanet.a
+            );
+
+            protoplanet.mass = self.accrete_dust(protoplanet);
+            if protoplanet.is_trivial_mass() {
+                log!(
+                    log_level,
+                    2,
+                    "    Proto-{} has trivial mass ({:.3} Earth masses).",
+                    protoplanet.mass_type,
+                    protoplanet.mass_in_earth_masses()
+                );
+                continue;
+            }
+
+            // Check for collisions with other planets
+            let (found_collision, closest_neighbor) = self.find_collision(protoplanet.a, protoplanet.e);
+            if found_collision {
+                // We must temporarily take ownership of the body to avoid borrowing issues.
+                let mut body = std::mem::replace(&mut self.bodies[closest_neighbor], Body::default());
+                body.collide(&protoplanet);
+
+                // Since it has grown in size, we need to check for more matter to accrete
+                body.mass = self.accrete_dust(body);
+
+                // Now replace the original body back with the updated body.
+                self.bodies[closest_neighbor] = body;
+            } else {
+                // The new planet won't collide with any other planet or star, so add it to the system
+                Body::insert(&mut self.bodies, protoplanet);
+            }
+
+            // Create a "diagram" of the system
+            log!(log_level, 1, "{}", self);
         }
         self
     }

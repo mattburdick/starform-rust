@@ -7,8 +7,8 @@ mod accretion_disk;
 mod body;
 mod consts;
 mod random;
-mod star_system;
 mod star;
+mod star_system;
 mod types;
 
 #[macro_use]
@@ -87,6 +87,33 @@ macro_rules! set_log_level {
             *log_level = $new_level;
         } else {
             eprintln!("Failed to lock LOGLEVEL for writing.");
+        }
+    };
+}
+
+/// Macro to conditionally execute `println!` based on the specified log level threshold.
+///
+/// This macro checks if the current log level meets or exceeds the specified threshold before executing
+/// the given `println!` statement. It is designed to reduce boilerplate code associated with conditional
+/// logging throughout an application.
+///
+/// # Usage
+/// - `log_level`: The current logging level of the application.
+/// - `threshold`: The minimum log level required for the `println!` to execute.
+/// - `fmt`: A format string as you would supply to `println!`.
+/// - `args`: Comma-separated list of arguments to pass to the format string (if any).
+///
+/// # Example
+/// ```
+/// log!(current_log_level, 3,
+///     "Protoplanet mass={:.2} {}, mass_density: {:.2}, non-giant density={:.2}",
+///     new_mass, if collects_gas { "(gas giant)" } else { "" }, mass_density, dust_density);
+/// ```
+#[macro_export]
+macro_rules! log {
+    ($log_level:expr, $threshold:expr, $fmt:expr $(, $args:expr)*) => {
+        if $log_level >= $threshold {
+            println!($fmt $(, $args)*);
         }
     };
 }

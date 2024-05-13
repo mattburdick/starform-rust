@@ -18,7 +18,7 @@
 
 pub const PI: f64 = 3.1415926536;
 pub const RADIANS_PER_ROTATION: f64 = 2.0 * PI;
-pub const ECCENTRICITY_COEFF: f64 = 0.077; // Dole's was 0.077
+pub const ECCENTRICITY_COEFF: f64 = 0.077; // Dole's was named "Q" with value 0.077
 pub const CLOUD_ECCENTRICITY: f64 = 0.2;
 pub const PROTOPLANET_MASS: f64 = 1.0E-15; // Units of solar masses
 pub const CHANGE_IN_EARTH_ANG_VEL: f64 = -1.3E-15; // Units of radians/sec/year
@@ -61,7 +61,7 @@ pub const GREENHOUSE_EFFECT_CONST: f64 = 0.93; // affects inner radius..
 pub const MOLAR_GAS_CONST: f64 = 8314.41; // units: g*m2/(sec2*K*mol)
 pub const K: f64 = 50.0; // K = gas/dust ratio
 pub const B: f64 = 1.2E-5; // Used in Crit_mass calc
-pub const DUST_DENSITY_COEFF: f64 = 6.0E-3; // A in Dole's paper
+pub const DUST_DENSITY_COEFF: f64 = 7.1E-8; // A in Dole's paper
 pub const ALPHA: f64 = 5.0; // Used in density calcs
 pub const N: f64 = 3.0; // Used in density calcs
 pub const J: f64 = 1.46E-19; // Used in day-length calcs (cm2/sec2 g)

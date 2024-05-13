@@ -1,7 +1,7 @@
 // src/orbital_body.rs
 
-use crate::{consts, get_log_level}; // Import the Star struct
 use crate::types::MassType;
+use crate::{consts, get_log_level, log}; // Import the Star struct
 
 #[derive(Debug, Clone, Copy)]
 pub struct Body {
@@ -9,6 +9,8 @@ pub struct Body {
     pub e: f64,
     pub mass: f64,
     pub mass_type: MassType,
+    pub local_dust_density: f64,
+    pub critical_mass_limit: f64, // The mass at which the body begins to accrete gas
 }
 impl Default for Body {
     fn default() -> Self {
@@ -17,6 +19,8 @@ impl Default for Body {
             e: 0.0,
             mass: 0.0,
             mass_type: MassType::Planet,
+            local_dust_density: 0.0,
+            critical_mass_limit: 0.0,
         }
     }
 }
@@ -38,8 +42,71 @@ impl Body {
     /// # Returns
     /// Returns a new instance of `Body`.
     ///
-    pub fn new(a: f64, e: f64, mass: f64, mass_type: MassType) -> Self {
-        Body { a, e, mass, mass_type }
+    pub fn new(
+        a: f64,
+        e: f64,
+        mass: f64,
+        mass_type: MassType,
+        local_dust_density: f64,
+        critical_mass_limit: f64,
+    ) -> Self {
+        Body {
+            a,
+            e,
+            mass,
+            mass_type,
+            local_dust_density,
+            critical_mass_limit,
+        }
+    }
+
+    pub fn collects_gas(&self, mass: f64) -> bool {
+        mass >= self.critical_mass_limit
+    }
+
+    /// Calculates the local density influenced by both dust and gas components based on the provided mass.
+    ///
+    /// This function determines the density at a location by modifying the base dust density to account for the
+    /// presence of gas, especially as the mass of the object at that location approaches or exceeds a critical
+    /// mass threshold. The calculation uses an interpolation formula that scales the dust density by a factor
+    /// dependent on the mass relative to the critical mass limit.
+    ///
+    /// # Parameters
+    /// - `mass`: The mass in solar masses of the celestial body at the location of interest.
+    ///
+    /// # Returns
+    /// Returns the modified local density as a floating-point number, which includes contributions from both dust
+    /// and gas, depending on the mass.
+    ///
+    /// # Formula
+    /// The local density \( \rho \) is calculated as:
+    /// \[
+    /// \rho = \frac{K \cdot \rho_{d}}{1 + \sqrt{\frac{m_{c}}{m}} \cdot (K - 1)}
+    /// \]
+    /// where:
+    /// - `K` is a constant that represents the dust-to-gas ratio.
+    /// - `\rho_{d}` is the density of dust at the location.
+    /// - `m_{c}` is the critical mass at which significant amounts of gas begin to accumulate.
+    ///
+    /// # Examples
+    /// ```
+    /// let system = StarSystem {
+    ///     local_dust_density: 0.1,
+    ///     critical_mass_limit: 0.5,
+    /// };
+    /// let density = system.local_density(0.3);
+    /// println!("Local density for mass 0.3 solar masses: {}", density);
+    /// ```
+    pub fn local_density(&self, mass: f64) -> f64 {
+        consts::K * self.local_dust_density / (1.0 + (self.critical_mass_limit / mass).sqrt() * (consts::K - 1.0))
+    }
+
+    pub fn is_trivial_mass(&self) -> bool {
+        self.mass < consts::TRIVIAL_MASS
+    }
+
+    pub fn mass_in_earth_masses(&self) -> f64 {
+        self.mass * consts::SUN_MASS_IN_EARTH_MASSES
     }
 
     /// Inserts a new `Body` into a sorted vector of `Body` objects, maintaining the order by the semi-major axis `a`.
@@ -61,17 +128,18 @@ impl Body {
 
     pub fn gravitational_effect_limits(a: f64, e: f64, mass: f64) -> (f64, f64, f64, f64) {
         // The protoplanet will capture particles based on its mass relative to the primary star (or planet if a moon).
-        let aphelion = a * (1.0 + e); // rp in Dole's paper
-        let perihelion = a * (1.0 - e); // ra in Dole's paper
-        let relative_mass_effect = (mass / (1.0 + mass)).powf(0.25);
-        let aphelion_influence = aphelion * relative_mass_effect; // xa in Dole's paper
-        let parahelion_influence = perihelion * relative_mass_effect; // xp in Dole's paper
-        (
-            (perihelion - parahelion_influence) / (1.0 + consts::CLOUD_ECCENTRICITY),
-            (aphelion + aphelion_influence) / (1.0 - consts::CLOUD_ECCENTRICITY),
-            aphelion_influence,
-            parahelion_influence,
-        )
+        let ra = a * (1.0 + e); // aphelion distance (farthest point from the star)
+        let rp = a * (1.0 - e); // perihelion distance (closest point to the star)
+
+        // Calculate the distance from the mass where matter is affected by its gravity. This depends on its distance from the star.
+        let mass_influence = (mass / (1.0 + mass)).powf(0.25);
+        let xa = ra * mass_influence;
+        let xp = rp * mass_influence;
+
+        let inner_effect_limit = (rp - xp) / (1.0 + consts::CLOUD_ECCENTRICITY);
+        let outer_effect_limit = (ra + xa) / (1.0 - consts::CLOUD_ECCENTRICITY);
+
+        (inner_effect_limit, outer_effect_limit, xp, xa)
     }
 
     /// Calculates the critical limit of a planetary body based on its orbital parameters and the luminosity of its central star.
@@ -103,12 +171,12 @@ impl Body {
     /// - `other`: A reference to the other `Body` involved in the collision.
     ///
     pub fn collide(&mut self, other: &Body) {
-        let new_orbit = (self.mass + other.mass) / ((self.mass / self.a) + (other.mass / other.a));
+        let new_a = (self.mass + other.mass) / ((self.mass / self.a) + (other.mass / other.a));
 
         // Calculate new eccentricity 'e'
         let angular_momentum = self.mass * self.a.sqrt() * (1.0 - self.e.powf(2.0)).sqrt()
             + other.mass * other.a.sqrt() * (1.0 - other.e.powf(2.0)).sqrt();
-        let new_angular_momentum = angular_momentum / ((self.mass + other.mass) * new_orbit.sqrt());
+        let new_angular_momentum = angular_momentum / ((self.mass + other.mass) * new_a.sqrt());
         let new_e_squared = 1.0 - new_angular_momentum.powf(2.0);
         let new_e = if new_e_squared < 0.0 || new_e_squared >= 1.0 {
             0.0
@@ -117,7 +185,7 @@ impl Body {
         };
 
         // Update the mass
-        self.a = new_orbit;
+        self.a = new_a;
         self.e = new_e;
         self.mass += other.mass;
 
@@ -128,16 +196,14 @@ impl Body {
             // node.star_ptr.stell_mass_ratio = node.mass;
         }
 
-        if *get_log_level!() >= 1 {
-            let collision_type = match self.mass_type {
-                MassType::Star => "star",
-                MassType::Planet => "planet",
-                MassType::GasGiant => "gas giant",
-            };
-            println!(
-                "  Collision with a {}! ({:.2}, {:.2} -> {:.2})",
-                collision_type, other.a, self.a, new_orbit
-            );
-        }
+        log!(
+            *get_log_level!(),
+            1,
+            "Collision with a {}! ({:.2}, {:.2} -> {:.2})",
+            self.mass_type,
+            other.a,
+            self.a,
+            new_a
+        );
     }
 }

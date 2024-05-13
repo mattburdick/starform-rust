@@ -5,10 +5,10 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::{consts, get_log_level, random};
 use crate::accretion_disk::AccretionDisk;
 use crate::body::Body;
 use crate::types::MassType;
+use crate::{consts, get_log_level, log, random};
 
 lazy_static! {
     #[rustfmt::skip]
@@ -112,8 +112,8 @@ impl SpectralInfo {
 
         let mut spectral_info: SpectralInfo = SpectralInfo {
             spec_class: 'G',
-            spec_num: 0,
-            max_mass: 0.1,
+            spec_num: 3,
+            max_mass: 1.0,
             percentage: 1.0,
         };
 
@@ -369,17 +369,12 @@ impl Star {
         spectral_class: char,
         spectral_number: i32,
     ) -> (f64, f64, f64, i32, f64, f64, f64, f64) {
-        let log_level = *get_log_level!();
-
         let mass_in_sols = random::about(max_mass, 0.1);
         let luminosity_in_sols =
             Self::luminosity_in_sols(mass_in_sols, luminosity_class).expect("Star::luminosity failed");
 
         // Adjust the spectral number based on expected stellar mass range for this type of star
         let spectral_number_adjustment = (5.0 * (max_mass - mass_in_sols) / (max_mass)) as i32;
-        if log_level >= 3 {
-            println!("Star::random star mass {:.2} is about {max_mass}. Spectral number={spectral_number}+{spectral_number_adjustment}={}", mass_in_sols, spectral_number+spectral_number_adjustment);
-        }
         let spectral_number = spectral_number + spectral_number_adjustment;
 
         let radius_in_au =
@@ -500,7 +495,7 @@ impl Star {
             AccretionDisk::random_eccentricity()
         };
 
-        let star = Body::new(orbital_radius_in_au, e, mass, MassType::Star);
+        let star = Body::new(orbital_radius_in_au, e, mass, MassType::Star, 0.0, 0.0);
         let accretion_disk = AccretionDisk::new(star, luminosity_in_sols, orbital_radius_in_au);
 
         Star {
