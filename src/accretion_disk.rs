@@ -1,6 +1,6 @@
 // src/accretion_disk.rs
 
-use crate::{consts, get_log_level, log};
+use crate::{body, consts, get_log_level, log};
 use rand::Rng;
 use std::{collections::VecDeque, fmt};
 
@@ -20,10 +20,10 @@ pub struct Band {
 impl fmt::Display for Band {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let distance = (self.outer_edge - self.inner_edge).round() as usize;
-        let numchars = if distance >= 4 { distance - 4 } else { 0 }; // Subtract 4 to account for the two characters at the ends
+        let numchars = if distance >= 4 { distance - 4 } else { 1 }; // Subtract 4 to account for the two characters at the ends
 
         // Use "-" if the band has dust and gas. Otherwise, use "." (just gas)
-        let output_char = if self.dust_present { "-" } else { "." };
+        let output_char = if self.dust_present { "-" } else { "'" };
 
         // Repeat the chosen character for each AU between the previous planet and this band
         if distance > 0 {
@@ -93,12 +93,14 @@ pub struct AccretionDisk {
 
 impl fmt::Display for AccretionDisk {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut previous_a = 0.0;
         for body in &self.bodies {
-            let distance = body.a.round() as usize;
+            let distance = (body.a - previous_a).round() as usize;
+            previous_a = body.a;
             if distance > 0 {
                 write!(
                     f,
-                    "{}{:.3}",
+                    "{}{:.1}",
                     " ".repeat(distance),
                     body.mass * consts::SUN_MASS_IN_EARTH_MASSES
                 )?;
@@ -108,8 +110,14 @@ impl fmt::Display for AccretionDisk {
 
         for body in &self.bodies {
             let distance = body.a.round() as usize;
+            let body_char = match body.mass_type {
+                MassType::Moon => "o",
+                MassType::Planet => "o",
+                MassType::GasGiant => "0",
+                MassType::Star => "*",
+            };
             if distance > 0 {
-                write!(f, "{}o\n", " ".repeat(distance))?;
+                write!(f, "{}{body_char}\n", " ".repeat(distance))?;
             }
         }
         write!(f, "\n")?;
@@ -577,6 +585,9 @@ impl AccretionDisk {
                 self.bodies[closest_neighbor] = body;
             } else {
                 // The new planet won't collide with any other planet or star, so add it to the system
+                if protoplanet.mass >= protoplanet.critical_mass_limit {
+                    protoplanet.mass_type = MassType::GasGiant;
+                }
                 Body::insert(&mut self.bodies, protoplanet);
             }
 
