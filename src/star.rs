@@ -8,7 +8,7 @@ use std::fmt;
 use crate::accretion_disk::AccretionDisk;
 use crate::body::Body;
 use crate::types::MassType;
-use crate::{consts, get_log_level, log, random};
+use crate::{consts, random};
 
 lazy_static! {
     #[rustfmt::skip]

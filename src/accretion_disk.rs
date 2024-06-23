@@ -1,6 +1,6 @@
 // src/accretion_disk.rs
 
-use crate::{body, consts, get_log_level, log};
+use crate::{consts, get_log_level, log};
 use rand::Rng;
 use std::{collections::VecDeque, fmt};
 
