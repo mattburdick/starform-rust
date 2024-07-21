@@ -3,6 +3,7 @@ use std::fmt;
 
 use crate::{get_log_level, log, star::Star};
 
+#[derive(Debug, Clone)]
 pub struct StarSystem {
     pub stars: Vec<Star>, // Each system has 1 or more stars
 }

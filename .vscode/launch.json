@@ -14,11 +14,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=starform",
-                    "--package=starform"
+                    "--bin=starform-rust",
+                    "--package=starform-rust"
                 ],
                 "filter": {
-                    "name": "starform",
+                    "name": "starform-rust",
                     "kind": "bin"
                 }
             },
@@ -35,11 +35,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=starform",
-                    "--package=starform"
+                    "--bin=starform-rust",
+                    "--package=starform-rust"
                 ],
                 "filter": {
-                    "name": "starform",
+                    "name": "starform-rust",
                     "kind": "bin"
                 }
             },
@@ -56,11 +56,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=starform",
-                    "--package=starform"
+                    "--bin=starform-rust",
+                    "--package=starform-rust"
                 ],
                 "filter": {
-                    "name": "starform",
+                    "name": "starform-rust",
                     "kind": "bin"
                 }
             },
@@ -77,11 +77,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=starform",
-                    "--package=starform"
+                    "--bin=starform-rust",
+                    "--package=starform-rust"
                 ],
                 "filter": {
-                    "name": "starform",
+                    "name": "starform-rust",
                     "kind": "bin"
                 }
             },
@@ -96,11 +96,11 @@
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=starform",
-                    "--package=starform"
+                    "--bin=starform-rust",
+                    "--package=starform-rust"
                 ],
                 "filter": {
-                    "name": "starform",
+                    "name": "starform-rust",
                     "kind": "bin"
                 }
             },

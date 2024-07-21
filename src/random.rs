@@ -25,6 +25,7 @@ use rand::Rng;
 /// # Note
 /// The function uses `rand::thread_rng()`, a thread-local random number generator, to produce randomness.
 /// This generator is seeded by the system and is safe for casual use but not for cryptographic purposes.
+#[allow(dead_code)]
 pub fn random_number(num1: f64, num2: f64) -> f64 {
     let max = f64::max(num1, num2);
     let min = f64::min(num1, num2);

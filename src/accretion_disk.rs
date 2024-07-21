@@ -9,7 +9,7 @@ use crate::types::MassType;
 
 //---------------------------  Band  ------------------------------------------
 // This represents a band of dust/gas in the accretion disk
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Band {
     dust_present: bool,
     gas_present: bool,
@@ -78,7 +78,7 @@ impl Band {
 
 //---------------------------  AccretionDisk  ---------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AccretionDisk {
     pub central_mass: Body,
     pub luminosity: f64,         // The luminosity of the nearby star in solar luminosities
@@ -230,7 +230,8 @@ impl AccretionDisk {
     /// and a total height of 2 units.
     pub fn volume(r_inner: f64, r_outer: f64, xp: f64, xa: f64) -> f64 {
         let height = xa + xp; // Total height of the cylindrical shell
-        consts::PI * height * (r_outer.powf(2.0) - r_inner.powf(2.0)) // Calculating the volume
+        std::f32::consts::PI as f64 * height * (r_outer.powf(2.0) - r_inner.powf(2.0))
+        // Calculating the volume
     }
 
     /*--------------------------------------------------------------------------*/

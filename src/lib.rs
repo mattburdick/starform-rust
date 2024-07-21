@@ -6,8 +6,8 @@ mod accretion_disk;
 mod body;
 mod consts;
 mod random;
-mod star;
-mod star_system;
+pub mod star;
+pub mod star_system;
 mod types;
 
 #[macro_use]

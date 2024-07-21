@@ -10,6 +10,8 @@ use crate::body::Body;
 use crate::types::MassType;
 use crate::{consts, random};
 
+use crate::star::SpectralClass::*;
+
 lazy_static! {
     #[rustfmt::skip]
         static ref STARINFO: HashMap<LuminosityClass, Vec<SpectralInfo>> = {
@@ -17,78 +19,78 @@ lazy_static! {
 
         // Main sequence characteristics
         star_info.insert(LuminosityClass::MainSequence, vec![
-            SpectralInfo { spec_class: 'M', spec_num: 9, max_mass: 0.1, percentage: 0.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 5, max_mass: 0.2, percentage: 35.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 0, max_mass: 0.5, percentage: 36.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 5, max_mass: 0.7, percentage: 7.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 0, max_mass: 0.8, percentage: 7.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 5, max_mass: 0.9, percentage: 3.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 0, max_mass: 1.1, percentage: 3.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 5, max_mass: 1.3, percentage: 2.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 0, max_mass: 1.7, percentage: 1.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 5, max_mass: 2.0, percentage: 1.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 0, max_mass: 3.2, percentage: 1.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 5, max_mass: 6.5, percentage: 1.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 0, max_mass: 17.8, percentage: 1.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 5, max_mass: 39.8, percentage: 1.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 0, max_mass: 60.0, percentage: 1.0 },
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 0.1, percentage: 0.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 0.2, percentage: 35.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 0.5, percentage: 36.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 0.7, percentage: 7.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 0.8, percentage: 7.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 0.9, percentage: 3.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 1.1, percentage: 3.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 1.3, percentage: 2.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 1.7, percentage: 1.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 2.0, percentage: 1.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 3.2, percentage: 1.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 6.5, percentage: 1.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 17.8, percentage: 1.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 39.8, percentage: 1.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 60.0, percentage: 1.0 },
         ]);
 
         // White dwarf characteristics
         star_info.insert(LuminosityClass::WhiteDwarf, vec![
-            SpectralInfo { spec_class: 'M', spec_num: 9, max_mass: 0.0, percentage: 0.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 5, max_mass: 0.2, percentage: 0.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 0, max_mass: 0.4, percentage: 0.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 5, max_mass: 0.4, percentage: 1.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 0, max_mass: 0.4, percentage: 1.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 5, max_mass: 0.5, percentage: 1.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 0, max_mass: 0.6, percentage: 1.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 5, max_mass: 0.7, percentage: 4.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 0, max_mass: 0.8, percentage: 8.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 5, max_mass: 1.0, percentage: 28.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 0, max_mass: 0.5, percentage: 32.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 5, max_mass: 0.4, percentage: 13.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 0, max_mass: 0.4, percentage: 9.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 5, max_mass: 0.5, percentage: 1.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 0, max_mass: 0.7, percentage: 1.0 },
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 0.0, percentage: 0.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 0.2, percentage: 0.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 0.4, percentage: 0.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 0.4, percentage: 1.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 0.4, percentage: 1.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 0.5, percentage: 1.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 0.6, percentage: 1.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 0.7, percentage: 4.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 0.8, percentage: 8.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 1.0, percentage: 28.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 0.5, percentage: 32.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 0.4, percentage: 13.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 0.4, percentage: 9.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 0.5, percentage: 1.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 0.7, percentage: 1.0 },
             ]);
 
         // Giant characteristics
         star_info.insert(LuminosityClass::Giant, vec![
-            SpectralInfo { spec_class: 'M', spec_num: 9, max_mass: 8.7, percentage: 0.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 5, max_mass: 7.9, percentage: 12.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 0, max_mass: 6.3, percentage: 19.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 5, max_mass: 5.0, percentage: 26.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 0, max_mass: 4.0, percentage: 25.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 5, max_mass: 3.2, percentage: 5.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 0, max_mass: 2.5, percentage: 4.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 5, max_mass: 2.4, percentage: 2.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 0, max_mass: 2.5, percentage: 1.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 5, max_mass: 2.7, percentage: 1.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 0, max_mass: 3.4, percentage: 1.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 5, max_mass: 7.0, percentage: 1.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 0, max_mass: 30.3, percentage: 1.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 5, max_mass: 60.0, percentage: 1.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 0, max_mass: 70.0, percentage: 1.0 },
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 8.7, percentage: 0.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 7.9, percentage: 12.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 6.3, percentage: 19.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 5.0, percentage: 26.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 4.0, percentage: 25.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 3.2, percentage: 5.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 2.5, percentage: 4.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 2.4, percentage: 2.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 2.5, percentage: 1.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 2.7, percentage: 1.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 3.4, percentage: 1.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 7.0, percentage: 1.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 30.3, percentage: 1.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 60.0, percentage: 1.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 70.0, percentage: 1.0 },
             ]);
 
         // Supergiant characteristics
         star_info.insert(LuminosityClass::Supergiant, vec![
-            SpectralInfo { spec_class: 'M', spec_num: 9, max_mass: 22.3, percentage: 0.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 5, max_mass: 19.9, percentage: 12.0 },
-            SpectralInfo { spec_class: 'M', spec_num: 0, max_mass: 15.8, percentage: 13.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 5, max_mass: 15.0, percentage: 3.0 },
-            SpectralInfo { spec_class: 'K', spec_num: 0, max_mass: 12.6, percentage: 4.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 5, max_mass: 11.6, percentage: 3.0 },
-            SpectralInfo { spec_class: 'G', spec_num: 0, max_mass: 10.0, percentage: 3.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 5, max_mass: 11.8, percentage: 8.0 },
-            SpectralInfo { spec_class: 'F', spec_num: 0, max_mass: 12.6, percentage: 7.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 5, max_mass: 13.2, percentage: 6.0 },
-            SpectralInfo { spec_class: 'A', spec_num: 0, max_mass: 15.8, percentage: 6.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 5, max_mass: 30.2, percentage: 12.0 },
-            SpectralInfo { spec_class: 'B', spec_num: 0, max_mass: 50.1, percentage: 13.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 5, max_mass: 70.0, percentage: 4.0 },
-            SpectralInfo { spec_class: 'O', spec_num: 0, max_mass: 90.0, percentage: 6.0 },
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 22.3, percentage: 0.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 19.9, percentage: 12.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 15.8, percentage: 13.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 15.0, percentage: 3.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 12.6, percentage: 4.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 11.6, percentage: 3.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 10.0, percentage: 3.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 11.8, percentage: 8.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 12.6, percentage: 7.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 13.2, percentage: 6.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 15.8, percentage: 6.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 30.2, percentage: 12.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 50.1, percentage: 13.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 70.0, percentage: 4.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 90.0, percentage: 6.0 },
             ]);
 
         star_info
@@ -97,7 +99,7 @@ lazy_static! {
 }
 #[derive(Debug, Copy, Clone)]
 struct SpectralInfo {
-    spec_class: char,
+    spec_class: SpectralClass,
     spec_num: i32,
     max_mass: f64,
     percentage: f64,
@@ -111,7 +113,7 @@ impl SpectralInfo {
         let mut random_percent = rand::thread_rng().gen_range(0.0..=100.0);
 
         let mut spectral_info: SpectralInfo = SpectralInfo {
-            spec_class: 'G',
+            spec_class: G,
             spec_num: 3,
             max_mass: 1.0,
             percentage: 1.0,
@@ -138,7 +140,11 @@ impl SpectralInfo {
     }
 
     // Get the maximum mass for a given luminosity class, spectral class, and spectral number
-    fn get_mass(luminosity_class: LuminosityClass, spec_class: char, spec_num: i32) -> Result<f64, &'static str> {
+    fn get_mass(
+        luminosity_class: LuminosityClass,
+        spec_class: SpectralClass,
+        spec_num: i32,
+    ) -> Result<f64, &'static str> {
         let mut mass = 0.0;
 
         if let Some(items) = STARINFO.get(&luminosity_class) {
@@ -155,6 +161,74 @@ impl SpectralInfo {
         } else {
             Ok(mass)
         };
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum SpectralClass {
+    O,
+    B,
+    A,
+    F,
+    G,
+    K,
+    M,
+    R,
+    N,
+    S,
+}
+
+impl SpectralClass {
+    pub fn to_char(&self) -> char {
+        match self {
+            SpectralClass::O => 'O',
+            SpectralClass::B => 'B',
+            SpectralClass::A => 'A',
+            SpectralClass::F => 'F',
+            SpectralClass::G => 'G',
+            SpectralClass::K => 'K',
+            SpectralClass::M => 'M',
+            SpectralClass::R => 'R',
+            SpectralClass::N => 'N',
+            SpectralClass::S => 'S',
+        }
+    }
+}
+
+impl fmt::Display for SpectralClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SpectralClass::O => write!(f, "O"),
+            SpectralClass::B => write!(f, "B"),
+            SpectralClass::A => write!(f, "A"),
+            SpectralClass::F => write!(f, "F"),
+            SpectralClass::G => write!(f, "G"),
+            SpectralClass::K => write!(f, "K"),
+            SpectralClass::M => write!(f, "M"),
+            SpectralClass::R => write!(f, "R"),
+            SpectralClass::N => write!(f, "N"),
+            SpectralClass::S => write!(f, "S"),
+        }
+    }
+}
+
+impl TryFrom<char> for SpectralClass {
+    type Error = &'static str;
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        match value {
+            'O' => Ok(SpectralClass::O),
+            'B' => Ok(SpectralClass::B),
+            'A' => Ok(SpectralClass::A),
+            'F' => Ok(SpectralClass::F),
+            'G' => Ok(SpectralClass::G),
+            'K' => Ok(SpectralClass::K),
+            'M' => Ok(SpectralClass::M),
+            'R' => Ok(SpectralClass::R),
+            'N' => Ok(SpectralClass::N),
+            'S' => Ok(SpectralClass::S),
+            _ => Err("Unknown spectral class"),
+        }
     }
 }
 
@@ -179,7 +253,7 @@ impl LuminosityClass {
     //         LuminosityClass::WhiteDwarf => 'D',
     //     }
     // }
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             LuminosityClass::Supergiant => "I (supergiant)",
             LuminosityClass::BrightGiant => "II (bright giant)",
@@ -207,11 +281,12 @@ impl TryFrom<char> for LuminosityClass {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Star {
     pub luminosity_class: LuminosityClass, // Example: MainSequence, Giant, etc.
-    pub spectral_class: char,              // Example: O, B, A, F, G, K, M
+    pub spectral_class: SpectralClass,     // Example: O, B, A, F, G, K, M
     pub spectral_number: i32,              // Example: 3
+    pub temperature_in_kelvin: f64,        // In Kelvin
     pub orbital_radius_in_au: f64,
     pub mass_in_sols: f64,
     pub radius_in_au: f64,
@@ -317,9 +392,9 @@ impl Star {
     fn star_radius_in_au(
         mass_in_sols: f64,
         luminosity_class: LuminosityClass,
-        spectral_class: char,
+        spectral_class: SpectralClass,
     ) -> Result<f64, &'static str> {
-        let cool_star = spectral_class == 'K' || spectral_class == 'M';
+        let cool_star = spectral_class == K || spectral_class == M;
 
         let log_mass_ratio = mass_in_sols.log10();
         if log_mass_ratio.is_infinite() {
@@ -362,13 +437,41 @@ impl Star {
         }
     }
 
+    /// Calculates the approximate temperature of a star given its luminosity and radius.
+    ///
+    /// The temperature is estimated based on a modified form of the Stefan-Boltzmann law,
+    /// which relates the luminosity of a star to its effective temperature and radius.
+    /// This function simplifies the exact relation by using a power law approximation
+    /// and scales the result to the temperature of the Sun.
+    ///
+    /// # Arguments
+    /// * `luminosity_in_sols` - The luminosity of the star in units of solar luminosities.
+    /// * `radius_in_au` - The radius of the star in astronomical units (AU).
+    ///
+    /// # Returns
+    /// The estimated effective temperature of the star in Kelvin.
+    ///
+    /// # Example
+    /// ```
+    /// let temp = star_temperature(1.0, 1.0); // Temperature of a star similar to the sun
+    /// println!("The temperature of the star is {:.2} K", temp);
+    /// ```
+    ///
+    /// This function uses constants from the module `consts` where `SOLAR_RADII_PER_AU` is defined as
+    /// the number of solar radii per astronomical unit and `SOLAR_TEMPERATURE_IN_KELVIN` is the surface
+    /// temperature of the sun in Kelvin.
+    fn star_temperature(luminosity_in_sols: f64, radius_in_au: f64) -> f64 {
+        let temperature_in_sols = luminosity_in_sols.powf(0.25) / (radius_in_au / consts::SOLAR_RADII_PER_AU).powf(0.5);
+        temperature_in_sols * consts::SOLAR_TEMPERATURE_IN_KELVIN
+    }
+
     /// Calculate a number of stellar characteristics based on mass and classification
     fn calculate_stellar_stats(
         max_mass: f64,
         luminosity_class: LuminosityClass,
-        spectral_class: char,
+        spectral_class: SpectralClass,
         spectral_number: i32,
-    ) -> (f64, f64, f64, i32, f64, f64, f64, f64) {
+    ) -> (f64, f64, f64, f64, i32, f64, f64, f64, f64) {
         let mass_in_sols = random::about(max_mass, 0.1);
         let luminosity_in_sols =
             Self::luminosity_in_sols(mass_in_sols, luminosity_class).expect("Star::luminosity failed");
@@ -384,10 +487,12 @@ impl Star {
         let age = Self::star_age(1.0E6_f64.max(1.1E10 * (mass_in_sols / luminosity_in_sols)));
         let r_ecosphere = (luminosity_in_sols).sqrt();
         let r_greenhouse = r_ecosphere * consts::GREENHOUSE_EFFECT_CONST;
+        let temperature_in_kelvin = Self::star_temperature(luminosity_in_sols, radius_in_au);
 
         (
             mass_in_sols,
             luminosity_in_sols,
+            temperature_in_kelvin,
             radius_in_au,
             spectral_number,
             r_ecosphere,
@@ -423,7 +528,9 @@ impl Star {
             return Err("Spectral information is incomplete.");
         }
 
-        let spectral_class = spectral_info.chars().next().unwrap();
+        let spectral_class_char = spectral_info.chars().next().unwrap();
+        let spectral_class =
+            SpectralClass::try_from(spectral_class_char).expect("Invalid spectral class {spectral_class_char}");
         let luminosity_id = spectral_info.chars().nth(spectral_info.len() - 1).unwrap();
         let luminosity_class =
             LuminosityClass::try_from(luminosity_id).expect("Invalid luminosity class {luminosity_id}");
@@ -481,14 +588,23 @@ impl Star {
     }
 
     pub fn new(
-        spectral_class: char,
+        spectral_class: SpectralClass,
         luminosity_class: LuminosityClass,
         spectral_number: i32,
         orbital_radius_in_au: f64,
         max_mass_for_class: f64,
     ) -> Self {
-        let (mass, luminosity_in_sols, radius_in_au, spectral_number, r_ecosphere, r_greenhouse, age, main_seq_life) =
-            Self::calculate_stellar_stats(max_mass_for_class, luminosity_class, spectral_class, spectral_number);
+        let (
+            mass,
+            luminosity_in_sols,
+            temperature_in_kelvin,
+            radius_in_au,
+            spectral_number,
+            r_ecosphere,
+            r_greenhouse,
+            age,
+            main_seq_life,
+        ) = Self::calculate_stellar_stats(max_mass_for_class, luminosity_class, spectral_class, spectral_number);
         let e = if orbital_radius_in_au == 0.0 {
             0.0
         } else {
@@ -501,6 +617,7 @@ impl Star {
         Star {
             spectral_class,
             spectral_number,
+            temperature_in_kelvin,
             orbital_radius_in_au,
             mass_in_sols: mass,
             age: age,
