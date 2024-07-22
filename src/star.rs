@@ -140,7 +140,7 @@ impl SpectralInfo {
     }
 
     // Get the maximum mass for a given luminosity class, spectral class, and spectral number
-    fn get_mass(
+    fn get_max_mass(
         luminosity_class: LuminosityClass,
         spec_class: SpectralClass,
         spec_num: i32,
@@ -265,6 +265,12 @@ impl LuminosityClass {
     }
 }
 
+impl fmt::Display for LuminosityClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.to_string().fmt(f)
+    }
+}
+
 impl TryFrom<char> for LuminosityClass {
     type Error = &'static str;
 
@@ -288,6 +294,7 @@ pub struct Star {
     pub spectral_number: i32,              // Example: 3
     pub temperature_in_kelvin: f64,        // In Kelvin
     pub orbital_radius_in_au: f64,
+    pub max_mass_in_sols: f64,
     pub mass_in_sols: f64,
     pub radius_in_au: f64,
     pub luminosity_in_sols: f64,
@@ -340,21 +347,69 @@ impl Star {
             self.luminosity_class.to_string()
         )
     }
+    /// Sets the spectral and luminosity classifications for a star and updates its properties.
+    ///
+    /// This method updates the star's spectral class, spectral number, and luminosity class with the given values.
+    /// It then recalculates the star's physical properties based on these new classifications.
+    ///
+    /// # Arguments
+    /// * `spectral_class` - The spectral class of the star (e.g., O, B, A, F, G, K, M, R, N, S).
+    /// * `spectral_number` - An integer representing the subclass within the spectral class,
+    ///   typically ranging from 0 to 9, where 0 is hottest and 9 is coolest within the class.
+    /// * `luminosity_class` - The luminosity class of the star (e.g., Main Sequence, Giant,
+    ///   Subgiant, Supergiant, Bright Giant, White Dwarf).
+    ///
+    /// # Example
+    /// ```
+    /// let mut star = Star::new();
+    /// star.set_classifications(SpectralClass::G, 2, LuminosityClass::MainSequence);
+    /// ```
+    /// After calling this method, the star's `calculate_properties` method is called to update its temperature,
+    /// radius, and other related physical properties according to the new classifications.
+    pub fn set_classifications(
+        &mut self,
+        spectral_class: SpectralClass,
+        spectral_number: i32,
+        luminosity_class: LuminosityClass,
+    ) {
+        self.spectral_class = spectral_class;
+        self.spectral_number = spectral_number;
+        self.luminosity_class = luminosity_class;
 
-    ///  This is eq. 3.52 from "Astrophysics I" by Bowers and Deeming.
-    ///  The mass_in_sols is unitless and is a ratio of the stellar mass to that
-    ///  of the Sun.  Both alpha and beta are unitless constants.
-    ///  Note that for a main-sequence G3 star like the Sun, this function
-    ///  overestimates the luminosity slightly.  It does, however, fit the
-    ///  mass-luminosity curve fairly well.
-    fn luminosity_in_sols(mass_in_sols: f64, luminosity_class: LuminosityClass) -> Result<f64, &'static str> {
+        self.calculate_properties();
+    }
+
+    /// Calculates the luminosity of a star relative to the sun based on its mass and luminosity class.
+    ///
+    /// This static method implements the mass-luminosity relationship, which is expressed in the
+    /// form of a power law as described in equation 3.52 of "Astrophysics I" by Bowers and Deeming.
+    /// The `mass_in_sols` is a unitless ratio representing the star's mass relative to the solar mass.
+    /// The function adjusts the calculation based on different luminosity classes, using class-specific
+    /// constants alpha and beta which are dimensionless.
+    ///
+    /// # Parameters
+    /// * `mass_in_sols` - The star's mass expressed as a multiple of the solar mass.
+    /// * `luminosity_class` - The luminosity classification of the star which impacts the mass-luminosity
+    ///   relationship. It can be one of the following: MainSequence, Giant, Subgiant, Supergiant,
+    ///   BrightGiant, or WhiteDwarf.
+    ///
+    /// # Returns
+    /// * `luminosity_in_sols` - The star's luminosity expressed as a multiple of the solar luminosity.
+    ///
+    /// # Examples
+    /// ```
+    /// let luminosity = Star::luminosity_in_sols(1.0, LuminosityClass::MainSequence);
+    /// println!("Luminosity of a main-sequence star with solar mass: {}", luminosity);
+    /// ```
+    ///
+    /// # Notes
+    /// - For a main-sequence G3 star like the Sun, this function slightly overestimates the luminosity.
+    /// - The function generally fits the mass-luminosity curve well across different classes, providing
+    ///   an approximation that is useful for various astrophysical calculations and simulations.
+    pub fn luminosity_in_sols(mass_in_sols: f64, luminosity_class: LuminosityClass) -> f64 {
         let luminosity_in_sols: f64;
 
         let log_mass_ratio = mass_in_sols.log10();
-        if log_mass_ratio.is_infinite() {
-            return Err("luminosity function: stellar mass ratio leads to infinite logarithm");
-        }
-
         match luminosity_class {
             LuminosityClass::MainSequence => {
                 let alpha: f64;
@@ -383,24 +438,42 @@ impl Star {
             }
         }
 
-        Ok(luminosity_in_sols)
+        luminosity_in_sols
     }
 
-    /// This is eq. 3.53 from "Astrophysics I" by Bowers and Deeming.
-    /// The mass_ratio is unitless and is a ratio of the stellar mass to that
-    /// of the Sun.  The stellar radius returned is in units of AU.
-    fn star_radius_in_au(
-        mass_in_sols: f64,
-        luminosity_class: LuminosityClass,
-        spectral_class: SpectralClass,
-    ) -> Result<f64, &'static str> {
+    /// Calculates the radius of a star in astronomical units (AU) based on its mass relative to the sun,
+    /// luminosity class, and spectral class, following the method described in equation 3.53 of "Astrophysics I"
+    /// by Bowers and Deeming.
+    ///
+    /// This static method uses a logarithmic relationship to compute the star's radius. The formula varies
+    /// depending on the luminosity and spectral class, accounting for differences in stellar structure and
+    /// evolution.
+    ///
+    /// # Parameters
+    /// * `mass_in_sols` - The mass of the star expressed as a ratio relative to the solar mass.
+    /// * `luminosity_class` - The luminosity classification of the star, which significantly affects the radius calculation.
+    ///   It can be MainSequence, Giant, Subgiant, Supergiant, BrightGiant, or WhiteDwarf.
+    /// * `spectral_class` - The spectral classification of the star, affecting calculations especially for cooler,
+    ///   later-type stars such as K and M classes.
+    ///
+    /// # Returns
+    /// * `radius_in_au` - The computed radius of the star in astronomical units, using the solar radius as a conversion factor.
+    ///
+    /// # Example
+    /// ```
+    /// let radius = Star::radius_in_au(1.0, LuminosityClass::MainSequence, SpectralClass::G);
+    /// println!("Radius of a main-sequence G-type star with solar mass: {}", radius);
+    /// ```
+    ///
+    /// # Notes
+    /// - The function applies different scaling factors based on luminosity class and adjusts for cool star types (K, M)
+    ///   in the cases of supergiants and bright giants.
+    /// - The function for White Dwarfs returns a randomized value around a typical white dwarf radius due to their
+    ///   highly compressed nature.
+    pub fn radius_in_au(mass_in_sols: f64, luminosity_class: LuminosityClass, spectral_class: SpectralClass) -> f64 {
         let cool_star = spectral_class == K || spectral_class == M;
 
         let log_mass_ratio = mass_in_sols.log10();
-        if log_mass_ratio.is_infinite() {
-            return Err("stellar radius function: stellar mass bad");
-        }
-
         let radius_in_sols = match luminosity_class {
             LuminosityClass::MainSequence => {
                 if mass_in_sols <= 0.4 {
@@ -420,12 +493,89 @@ impl Star {
             LuminosityClass::WhiteDwarf => random::about(0.02, 0.005),
         };
 
-        Ok(radius_in_sols * consts::SOLAR_RADII_PER_AU)
+        radius_in_sols * consts::SOLAR_RADII_PER_AU
     }
 
-    /// Both the main sequence lifetime and the age returned are in units of
-    /// years.  The lifetime passed in is guaranteed to be >= 1 million.
-    fn star_age(lifetime: f64) -> f64 {
+    /// Calculates the approximate temperature of a star given its luminosity and radius.
+    ///
+    /// The temperature is estimated based on a modified form of the Stefan-Boltzmann law,
+    /// which relates the luminosity of a star to its effective temperature and radius.
+    /// This function simplifies the exact relation by using a power law approximation
+    /// and scales the result to the temperature of the Sun.
+    ///
+    /// # Returns
+    /// The estimated effective temperature of the star in Kelvin.
+    ///
+    /// This function uses constants from the module `consts` where `SOLAR_RADII_PER_AU` is defined as
+    /// the number of solar radii per astronomical unit and `SOLAR_TEMPERATURE_IN_KELVIN` is the surface
+    /// temperature of the sun in Kelvin.
+    pub fn temperature_in_kelvin(luminosity_in_sols: f64, radius_in_au: f64) -> f64 {
+        let temperature_in_sols = luminosity_in_sols.powf(0.25) / (radius_in_au / consts::SOLAR_RADII_PER_AU).powf(0.5);
+        temperature_in_sols * consts::SOLAR_TEMPERATURE_IN_KELVIN
+    }
+
+    /// Estimates the main sequence lifetime of a star based on its mass relative to the sun's mass and its
+    /// luminosity relative to the sun's luminosity, using a simplified model from stellar astrophysics.
+    ///
+    /// This function computes the star's main sequence lifetime, assuming that the larger the mass and the higher
+    /// the luminosity, the shorter the main sequence phase will be. The formula used is a straightforward
+    /// proportionality scaled by a constant representing the sun's estimated main sequence lifetime.
+    ///
+    /// # Parameters
+    /// * `mass_in_sols` - The mass of the star expressed as a ratio relative to the solar mass.
+    /// * `luminosity_in_sols` - The luminosity of the star expressed as a ratio relative to the solar luminosity.
+    ///
+    /// # Returns
+    /// * `lifetime` - The estimated main sequence lifetime of the star in years. This is bounded by a minimum value
+    ///   to ensure the lifetime never falls below a realistic threshold, reflecting observational constraints.
+    ///
+    /// # Example
+    /// ```
+    /// let life_span = Star::main_seq_life(1.0, 1.0);
+    /// println!("Main sequence lifetime of a star with solar mass and luminosity: {}", life_span);
+    /// ```
+    ///
+    /// # Notes
+    /// - The main sequence lifetime is calculated as a product of a constant (approximately 11 billion years),
+    ///   and the ratio of the star's mass to its luminosity. This formula assumes that higher mass and luminosity
+    ///   result in faster fuel consumption and thus a shorter lifespan.
+    /// - The function ensures that the lifetime does not drop below 10 billion years, which serves as a
+    ///   practical lower bound for the main sequence lifetime based on current astrophysical understanding.
+    pub fn main_seq_life(mass_in_sols: f64, luminosity_in_sols: f64) -> f64 {
+        let lifetime = 1.1E10_f64 * (mass_in_sols / luminosity_in_sols);
+        lifetime.max(1.0E10_f64)
+    }
+
+    /// Estimates the current age of a star by generating a random value within a range determined by its
+    /// calculated main sequence lifetime. This method considers various scenarios based on the longevity of the star.
+    ///
+    /// The age is generated randomly to simulate the unpredictability of exactly when within its possible
+    /// lifespan a star might currently be. This approach is typical in simulations where exact ages are not
+    /// determinable but where an age within a realistic range is sufficient.
+    ///
+    /// # Parameters
+    /// * `mass_in_sols` - The mass of the star expressed as a ratio relative to the solar mass.
+    /// * `luminosity_in_sols` - The luminosity of the star expressed as a ratio relative to the solar luminosity.
+    ///
+    /// # Returns
+    /// * `age` - The randomly generated current age of the star in years, constrained within realistic limits
+    ///   based on the star's expected main sequence lifetime.
+    ///
+    /// # Example
+    /// ```
+    /// let star_age = Star::age(1.0, 1.0);
+    /// println!("Randomly determined age of a star with solar mass and luminosity: {}", star_age);
+    /// ```
+    ///
+    /// # Notes
+    /// - The function first calculates the star's expected main sequence lifetime using `Star::main_seq_life`.
+    /// - Depending on this calculated lifetime, the age is generated within different ranges:
+    ///   - If the lifetime is at least 6 billion years, the age is randomly chosen between 1 billion and 6 billion years.
+    ///   - If the lifetime is between 1 billion and 6 billion years, the age is between 1 billion years and the lifetime.
+    ///   - If the lifetime is less than 1 billion years, the age ranges from 1 million to the lifetime, accommodating
+    ///     very short-lived stellar phenomena.
+    pub fn age(mass_in_sols: f64, luminosity_in_sols: f64) -> f64 {
+        let lifetime = Star::main_seq_life(mass_in_sols, luminosity_in_sols);
         let mut rng = rand::thread_rng();
 
         if lifetime >= 6.0e9 {
@@ -437,69 +587,113 @@ impl Star {
         }
     }
 
-    /// Calculates the approximate temperature of a star given its luminosity and radius.
+    /// Generates a random orbital eccentricity for a celestial object based on its orbital radius.
+    /// Eccentricity measures the deviation of an orbit from being circular. An eccentricity of 0 represents
+    /// a perfectly circular orbit, whereas values approaching 1 indicate highly elliptical orbits.
     ///
-    /// The temperature is estimated based on a modified form of the Stefan-Boltzmann law,
-    /// which relates the luminosity of a star to its effective temperature and radius.
-    /// This function simplifies the exact relation by using a power law approximation
-    /// and scales the result to the temperature of the Sun.
-    ///
-    /// # Arguments
-    /// * `luminosity_in_sols` - The luminosity of the star in units of solar luminosities.
-    /// * `radius_in_au` - The radius of the star in astronomical units (AU).
+    /// # Parameters
+    /// * `orbital_radius_in_au` - The orbital radius of the celestial body in astronomical units (AU).
     ///
     /// # Returns
-    /// The estimated effective temperature of the star in Kelvin.
+    /// * `eccentricity` - A double-precision floating-point number representing the orbital eccentricity.
+    ///   If the orbital radius is zero (implying the body is at the center or has no discernible orbit),
+    ///   the eccentricity is set to zero, representing a circular or undefined orbit.
     ///
     /// # Example
     /// ```
-    /// let temp = star_temperature(1.0, 1.0); // Temperature of a star similar to the sun
-    /// println!("The temperature of the star is {:.2} K", temp);
+    /// let eccentricity = Star::random_eccentricity(0.5); // For a celestial body at 0.5 AU from the center
+    /// println!("Random eccentricity for orbital radius 0.5 AU: {}", eccentricity);
     /// ```
     ///
-    /// This function uses constants from the module `consts` where `SOLAR_RADII_PER_AU` is defined as
-    /// the number of solar radii per astronomical unit and `SOLAR_TEMPERATURE_IN_KELVIN` is the surface
-    /// temperature of the sun in Kelvin.
-    fn star_temperature(luminosity_in_sols: f64, radius_in_au: f64) -> f64 {
-        let temperature_in_sols = luminosity_in_sols.powf(0.25) / (radius_in_au / consts::SOLAR_RADII_PER_AU).powf(0.5);
-        temperature_in_sols * consts::SOLAR_TEMPERATURE_IN_KELVIN
+    /// # Notes
+    /// - The function checks if the orbital radius is zero, returning an eccentricity of 0.0 in such cases.
+    ///   This condition handles special cases where the orbit might not be defined or is theoretically at the central point.
+    /// - For non-zero orbital radii, the function delegates to `AccretionDisk::random_eccentricity`, which should be
+    ///   implemented to generate a random eccentricity suitable for typical orbital mechanics in a celestial system.
+    pub fn random_eccentricity(orbital_radius_in_au: f64) -> f64 {
+        if orbital_radius_in_au == 0.0 {
+            0.0
+        } else {
+            AccretionDisk::random_eccentricity()
+        }
     }
 
-    /// Calculate a number of stellar characteristics based on mass and classification
-    fn calculate_stellar_stats(
-        max_mass: f64,
-        luminosity_class: LuminosityClass,
-        spectral_class: SpectralClass,
-        spectral_number: i32,
-    ) -> (f64, f64, f64, f64, i32, f64, f64, f64, f64) {
-        let mass_in_sols = random::about(max_mass, 0.1);
-        let luminosity_in_sols =
-            Self::luminosity_in_sols(mass_in_sols, luminosity_class).expect("Star::luminosity failed");
+    /// Calculates the radius of the ecosphere, also known as the habitable zone, for a star based on its luminosity.
+    /// The ecosphere is the region around a star where conditions might be right for liquid water to exist on the surface
+    /// of a planet, which is considered crucial for life as we know it. This function uses the square root of the star's
+    /// luminosity to estimate the distance at which a planet would need to orbit to potentially support life.
+    ///
+    /// # Parameters
+    /// * `luminosity_in_sols` - The luminosity of the star expressed in solar luminosities (the luminosity of the sun = 1).
+    ///
+    /// # Returns
+    /// * `r_ecosphere` - The radius of the habitable zone in astronomical units (AU), where 1 AU is the average distance
+    ///   from the Earth to the Sun.
+    ///
+    /// # Example
+    /// ```
+    /// let habitable_zone_radius = Star::r_ecosphere(1.0); // For a star with the luminosity of the sun
+    /// println!("Radius of the habitable zone for solar luminosity: {}", habitable_zone_radius);
+    /// ```
+    ///
+    /// # Notes
+    /// - This method assumes a simplified model where the square root of the luminosity is proportional to the radius
+    ///   of the habitable zone. This is based on the assumption that a star's luminosity affects the amount of radiant
+    ///   energy a planet receives, which in turn influences the range of distances at which conditions might support life.
+    pub fn r_ecosphere(luminosity_in_sols: f64) -> f64 {
+        luminosity_in_sols.sqrt()
+    }
 
-        // Adjust the spectral number based on expected stellar mass range for this type of star
-        let spectral_number_adjustment = (5.0 * (max_mass - mass_in_sols) / (max_mass)) as i32;
-        let spectral_number = spectral_number + spectral_number_adjustment;
+    /// Calculates the radius at which a significant greenhouse effect is expected, based on the radius of the ecosphere.
+    /// The greenhouse effect radius extends beyond the standard ecosphere radius, factoring in the potential warming
+    /// effects due to a planet's atmosphere.
+    ///
+    /// # Parameters
+    /// * `r_ecosphere` - The radius of the ecosphere, typically defined as the distance from a star at which a planet
+    ///   can maintain liquid water on its surface under Earth-like conditions, measured in astronomical units (AU).
+    ///
+    /// # Returns
+    /// * `r_greenhouse` - The extended radius accounting for the greenhouse effect, which could potentially allow
+    ///   a planet to support liquid water beyond the traditional habitable zone due to atmospheric warming.
+    ///
+    /// # Example
+    /// ```
+    /// let r_ecosphere = 1.0; // Ecosphere radius in AU
+    /// let r_greenhouse = Star::r_greenhouse(r_ecosphere); // Calculate the greenhouse radius
+    /// println!("Greenhouse radius for an ecosphere of 1 AU: {}", r_greenhouse);
+    /// ```
+    ///
+    /// # Notes
+    /// - The constant `consts::GREENHOUSE_EFFECT_CONST` is used to scale the ecosphere radius to calculate the greenhouse radius.
+    ///   This constant should reflect an empirically or theoretically derived multiplier that considers how much further out
+    ///   the capability for liquid water might extend due to atmospheric effects.
+    pub fn r_greenhouse(r_ecosphere: f64) -> f64 {
+        r_ecosphere * consts::GREENHOUSE_EFFECT_CONST
+    }
 
-        let radius_in_au =
-            Self::star_radius_in_au(mass_in_sols, luminosity_class, spectral_class).expect("Star::star_radius failed");
+    pub fn mass_in_sols(max_mass_in_sols: f64) -> f64 {
+        random::about(max_mass_in_sols, 0.1)
+    }
 
-        let main_seq_life = (1.1E10_f64 * (mass_in_sols / luminosity_in_sols)).min(1.0E10_f64);
-        let age = Self::star_age(1.0E6_f64.max(1.1E10 * (mass_in_sols / luminosity_in_sols)));
-        let r_ecosphere = (luminosity_in_sols).sqrt();
-        let r_greenhouse = r_ecosphere * consts::GREENHOUSE_EFFECT_CONST;
-        let temperature_in_kelvin = Self::star_temperature(luminosity_in_sols, radius_in_au);
+    pub fn spectral_number(max_mass_in_sols: f64, mass_in_sols: f64, spectral_number: i32) -> i32 {
+        let spectral_number_adjustment = (5.0 * (max_mass_in_sols - mass_in_sols) / (max_mass_in_sols)) as i32;
+        spectral_number + spectral_number_adjustment
+    }
 
-        (
-            mass_in_sols,
-            luminosity_in_sols,
-            temperature_in_kelvin,
-            radius_in_au,
-            spectral_number,
-            r_ecosphere,
-            r_greenhouse,
-            age,
-            main_seq_life,
-        )
+    pub fn calculate_properties(&mut self) {
+        self.max_mass_in_sols =
+            SpectralInfo::get_max_mass(self.luminosity_class, self.spectral_class, self.spectral_number)
+                .expect("Star::from_str failed to find spectral info");
+        self.mass_in_sols = Star::mass_in_sols(self.max_mass_in_sols);
+        self.spectral_number = Star::spectral_number(self.max_mass_in_sols, self.mass_in_sols, self.spectral_number);
+        self.radius_in_au = Star::radius_in_au(self.mass_in_sols, self.luminosity_class, self.spectral_class);
+        self.luminosity_in_sols = Star::luminosity_in_sols(self.mass_in_sols, self.luminosity_class);
+        self.radius_in_au = Star::radius_in_au(self.mass_in_sols, self.luminosity_class, self.spectral_class);
+        self.temperature_in_kelvin = Star::temperature_in_kelvin(self.luminosity_in_sols, self.radius_in_au);
+        self.main_seq_life = Star::main_seq_life(self.mass_in_sols, self.luminosity_in_sols);
+        self.age = Star::age(self.mass_in_sols, self.luminosity_in_sols);
+        self.r_ecosphere = Star::r_ecosphere(self.luminosity_in_sols);
+        self.r_greenhouse = Star::r_greenhouse(self.r_ecosphere);
     }
 
     /// Parses the specification of a star from a command-line input string, typically provided with the "-t" flag.
@@ -539,15 +733,11 @@ impl Star {
             Err(_) => return Err("Failed to parse spectral number."),
         };
 
-        let mass_in_sols = SpectralInfo::get_mass(luminosity_class, spectral_class, spectral_number)
-            .expect("Star::from_str failed to find spectral info");
-
         Ok(Self::new(
             spectral_class,
             luminosity_class,
             spectral_number,
             orbital_radius_in_au,
-            mass_in_sols,
         ))
     }
 
@@ -583,7 +773,6 @@ impl Star {
             luminosity_class,
             spectral_info.spec_num,
             orbital_radius_in_au,
-            spectral_info.max_mass,
         )
     }
 
@@ -592,43 +781,35 @@ impl Star {
         luminosity_class: LuminosityClass,
         spectral_number: i32,
         orbital_radius_in_au: f64,
-        max_mass_for_class: f64,
     ) -> Self {
-        let (
-            mass,
-            luminosity_in_sols,
-            temperature_in_kelvin,
-            radius_in_au,
-            spectral_number,
-            r_ecosphere,
-            r_greenhouse,
-            age,
-            main_seq_life,
-        ) = Self::calculate_stellar_stats(max_mass_for_class, luminosity_class, spectral_class, spectral_number);
-        let e = if orbital_radius_in_au == 0.0 {
-            0.0
-        } else {
-            AccretionDisk::random_eccentricity()
-        };
+        let max_mass_in_sols = SpectralInfo::get_max_mass(luminosity_class, spectral_class, spectral_number)
+            .expect("Star::from_str failed to find spectral info");
+        let mass_in_sols = Star::mass_in_sols(max_mass_in_sols);
+        let e = Star::random_eccentricity(orbital_radius_in_au);
+        let luminosity_in_sols = Star::luminosity_in_sols(mass_in_sols, luminosity_class);
 
-        let star = Body::new(orbital_radius_in_au, e, mass, MassType::Star, 0.0, 0.0);
-        let accretion_disk = AccretionDisk::new(star, luminosity_in_sols, orbital_radius_in_au);
+        let body = Body::new(orbital_radius_in_au, e, mass_in_sols, MassType::Star, 0.0, 0.0);
+        let accretion_disk = AccretionDisk::new(body, luminosity_in_sols, orbital_radius_in_au);
 
-        Star {
+        let mut star = Star {
+            luminosity_class,
             spectral_class,
             spectral_number,
-            temperature_in_kelvin,
+            temperature_in_kelvin: 0.0,
             orbital_radius_in_au,
-            mass_in_sols: mass,
-            age: age,
-            luminosity_class,
-            main_seq_life,
-            r_ecosphere,
-            luminosity_in_sols,
-            radius_in_au,
-            r_greenhouse,
+            max_mass_in_sols,
+            mass_in_sols,
+            radius_in_au: 0.0,
+            luminosity_in_sols: 0.0,
+            age: 0.0,
+            main_seq_life: 0.0,
+            r_ecosphere: 0.0,
+            r_greenhouse: 0.0,
             accretion_disk,
-        }
+        };
+
+        star.calculate_properties();
+        star
     }
 
     pub fn accrete(&mut self) -> &mut Self {
