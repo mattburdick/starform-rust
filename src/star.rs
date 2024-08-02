@@ -2,15 +2,9 @@
 
 use lazy_static::lazy_static;
 use rand::Rng;
-use std::collections::HashMap;
-use std::fmt;
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
-use crate::accretion_disk::AccretionDisk;
-use crate::body::Body;
-use crate::types::MassType;
-use crate::{consts, random};
-
-use crate::star::SpectralClass::*;
+use crate::{accretion_disk::AccretionDisk, body::Body, consts, random, star::SpectralClass::*, types::MassType};
 
 lazy_static! {
     #[rustfmt::skip]
@@ -53,7 +47,7 @@ lazy_static! {
             SpectralInfo { spec_class: B, spec_num: 0, max_mass: 0.4, percentage: 9.0 },
             SpectralInfo { spec_class: O, spec_num: 5, max_mass: 0.5, percentage: 1.0 },
             SpectralInfo { spec_class: O, spec_num: 0, max_mass: 0.7, percentage: 1.0 },
-            ]);
+        ]);
 
         // Giant characteristics
         star_info.insert(LuminosityClass::Giant, vec![
@@ -72,7 +66,7 @@ lazy_static! {
             SpectralInfo { spec_class: B, spec_num: 0, max_mass: 30.3, percentage: 1.0 },
             SpectralInfo { spec_class: O, spec_num: 5, max_mass: 60.0, percentage: 1.0 },
             SpectralInfo { spec_class: O, spec_num: 0, max_mass: 70.0, percentage: 1.0 },
-            ]);
+        ]);
 
         // Supergiant characteristics
         star_info.insert(LuminosityClass::Supergiant, vec![
@@ -91,7 +85,67 @@ lazy_static! {
             SpectralInfo { spec_class: B, spec_num: 0, max_mass: 50.1, percentage: 13.0 },
             SpectralInfo { spec_class: O, spec_num: 5, max_mass: 70.0, percentage: 4.0 },
             SpectralInfo { spec_class: O, spec_num: 0, max_mass: 90.0, percentage: 6.0 },
-            ]);
+        ]);
+
+        // Subgiant characteristics
+        // TODO: check this
+        star_info.insert(LuminosityClass::Subgiant, vec![
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 1.1, percentage: 0.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 1.2, percentage: 10.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 1.3, percentage: 10.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 1.4, percentage: 10.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 1.5, percentage: 10.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 1.6, percentage: 10.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 1.7, percentage: 10.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 1.8, percentage: 10.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 1.9, percentage: 10.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 2.0, percentage: 10.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 2.1, percentage: 10.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 2.2, percentage: 5.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 2.3, percentage: 5.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 2.4, percentage: 5.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 2.5, percentage: 5.0 },
+        ]);
+
+        // Bright Giant characteristics
+        // TODO: check this
+        star_info.insert(LuminosityClass::BrightGiant, vec![
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 11.0, percentage: 2.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 12.0, percentage: 3.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 14.0, percentage: 4.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 16.0, percentage: 5.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 18.0, percentage: 6.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 20.0, percentage: 7.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 22.0, percentage: 8.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 24.0, percentage: 9.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 26.0, percentage: 10.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 28.0, percentage: 10.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 30.0, percentage: 11.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 32.0, percentage: 10.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 34.0, percentage: 9.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 36.0, percentage: 8.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 38.0, percentage: 7.0 },
+        ]);
+
+        // Hypergiant characteristics
+        // TODO: check this
+        star_info.insert(LuminosityClass::Hypergiant, vec![
+            SpectralInfo { spec_class: M, spec_num: 9, max_mass: 50.0, percentage: 1.0 },
+            SpectralInfo { spec_class: M, spec_num: 5, max_mass: 60.0, percentage: 2.0 },
+            SpectralInfo { spec_class: M, spec_num: 0, max_mass: 70.0, percentage: 3.0 },
+            SpectralInfo { spec_class: K, spec_num: 5, max_mass: 80.0, percentage: 4.0 },
+            SpectralInfo { spec_class: K, spec_num: 0, max_mass: 90.0, percentage: 5.0 },
+            SpectralInfo { spec_class: G, spec_num: 5, max_mass: 100.0, percentage: 6.0 },
+            SpectralInfo { spec_class: G, spec_num: 0, max_mass: 110.0, percentage: 7.0 },
+            SpectralInfo { spec_class: F, spec_num: 5, max_mass: 120.0, percentage: 8.0 },
+            SpectralInfo { spec_class: F, spec_num: 0, max_mass: 130.0, percentage: 9.0 },
+            SpectralInfo { spec_class: A, spec_num: 5, max_mass: 140.0, percentage: 10.0 },
+            SpectralInfo { spec_class: A, spec_num: 0, max_mass: 150.0, percentage: 11.0 },
+            SpectralInfo { spec_class: B, spec_num: 5, max_mass: 160.0, percentage: 10.0 },
+            SpectralInfo { spec_class: B, spec_num: 0, max_mass: 170.0, percentage: 9.0 },
+            SpectralInfo { spec_class: O, spec_num: 5, max_mass: 180.0, percentage: 8.0 },
+            SpectralInfo { spec_class: O, spec_num: 0, max_mass: 190.0, percentage: 7.0 },
+        ]);
 
         star_info
     };
@@ -234,6 +288,7 @@ impl TryFrom<char> for SpectralClass {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum LuminosityClass {
+    Hypergiant,
     Supergiant,
     BrightGiant,
     Giant,
@@ -255,6 +310,7 @@ impl LuminosityClass {
     // }
     pub fn to_string(&self) -> &'static str {
         match self {
+            LuminosityClass::Hypergiant => "0 (hypergiant)",
             LuminosityClass::Supergiant => "I (supergiant)",
             LuminosityClass::BrightGiant => "II (bright giant)",
             LuminosityClass::Giant => "III (giant)",
@@ -276,6 +332,7 @@ impl TryFrom<char> for LuminosityClass {
 
     fn try_from(value: char) -> Result<Self, Self::Error> {
         match value {
+            'H' => Ok(LuminosityClass::Hypergiant),
             'S' => Ok(LuminosityClass::Supergiant),
             'B' => Ok(LuminosityClass::BrightGiant),
             'G' => Ok(LuminosityClass::Giant),
@@ -289,11 +346,12 @@ impl TryFrom<char> for LuminosityClass {
 
 #[derive(Debug, Clone)]
 pub struct Star {
+    pub body: Body,
     pub luminosity_class: LuminosityClass, // Example: MainSequence, Giant, etc.
     pub spectral_class: SpectralClass,     // Example: O, B, A, F, G, K, M
     pub spectral_number: i32,              // Example: 3
     pub temperature_in_kelvin: f64,        // In Kelvin
-    pub orbital_radius_in_au: f64,
+    pub a: f64,
     pub max_mass_in_sols: f64,
     pub mass_in_sols: f64,
     pub radius_in_au: f64,
@@ -302,7 +360,27 @@ pub struct Star {
     pub main_seq_life: f64,
     pub r_ecosphere: f64,
     pub r_greenhouse: f64,
-    pub accretion_disk: AccretionDisk,
+}
+
+impl Default for Star {
+    fn default() -> Self {
+        Star {
+            body: Body::default(),
+            luminosity_class: LuminosityClass::MainSequence,
+            spectral_class: SpectralClass::G,
+            spectral_number: 3,
+            temperature_in_kelvin: 0.0,
+            a: 0.0,
+            max_mass_in_sols: 0.0,
+            mass_in_sols: 0.0,
+            radius_in_au: 0.0,
+            luminosity_in_sols: 0.0,
+            age: 0.0,
+            main_seq_life: 0.0,
+            r_ecosphere: 0.0,
+            r_greenhouse: 0.0,
+        }
+    }
 }
 
 impl fmt::Display for Star {
@@ -433,6 +511,10 @@ impl Star {
             LuminosityClass::Supergiant | LuminosityClass::BrightGiant => {
                 luminosity_in_sols = 10f64.powf((log_mass_ratio + 0.22) / 0.33);
             }
+            LuminosityClass::Hypergiant => {
+                // TODO: Check and update this value
+                luminosity_in_sols = 10f64.powf((log_mass_ratio + 0.22) / 0.33);
+            }
             LuminosityClass::WhiteDwarf => {
                 luminosity_in_sols = mass_in_sols * 5.67E-4;
             }
@@ -483,7 +565,7 @@ impl Star {
                 }
             }
             LuminosityClass::Giant | LuminosityClass::Subgiant => 10f64.powf(log_mass_ratio * 2.0),
-            LuminosityClass::Supergiant | LuminosityClass::BrightGiant => {
+            LuminosityClass::Supergiant | LuminosityClass::BrightGiant | LuminosityClass::Hypergiant => {
                 if cool_star {
                     10f64.powf((log_mass_ratio - 0.32) / 0.34)
                 } else {
@@ -496,19 +578,37 @@ impl Star {
         radius_in_sols * consts::SOLAR_RADII_PER_AU
     }
 
-    /// Calculates the approximate temperature of a star given its luminosity and radius.
+    /// Calculates the effective temperature of a star given its luminosity and radius.
     ///
-    /// The temperature is estimated based on a modified form of the Stefan-Boltzmann law,
-    /// which relates the luminosity of a star to its effective temperature and radius.
-    /// This function simplifies the exact relation by using a power law approximation
-    /// and scales the result to the temperature of the Sun.
+    /// This function estimates the temperature based on the Stefan-Boltzmann law, which
+    /// relates a star's luminosity (total power output) to its effective temperature and
+    /// surface area. The formula used here is a simplification where the temperature is
+    /// proportional to the fourth root of the luminosity-to-radius ratio. This approximation
+    /// allows for quick temperature estimates suitable for most astrophysical simulations
+    /// and educational purposes.
+    ///
+    /// # Parameters
+    /// - `luminosity_in_sols`: The luminosity of the star expressed as a multiple of the
+    ///   solar luminosity.
+    /// - `radius_in_au`: The radius of the star expressed in astronomical units.
     ///
     /// # Returns
-    /// The estimated effective temperature of the star in Kelvin.
+    /// The estimated effective temperature of the star in Kelvin. The result is scaled to
+    /// the temperature of the sun, assuming the sun's temperature is defined in the
+    /// `consts::SOLAR_TEMPERATURE_IN_KELVIN` constant.
     ///
-    /// This function uses constants from the module `consts` where `SOLAR_RADII_PER_AU` is defined as
-    /// the number of solar radii per astronomical unit and `SOLAR_TEMPERATURE_IN_KELVIN` is the surface
-    /// temperature of the sun in Kelvin.
+    /// # Examples
+    /// ```
+    /// let luminosity = 1.0; // luminosity of the sun
+    /// let radius = 1.0; // radius of the sun in AU
+    /// let temp = temperature_in_kelvin(luminosity, radius);
+    /// println!("The temperature of the sun is approximately {} K", temp);
+    /// ```
+    ///
+    /// # Note
+    /// The constants `SOLAR_RADII_PER_AU` and `SOLAR_TEMPERATURE_IN_KELVIN` are used from
+    /// the `consts` module to relate AU to solar radii and to scale the temperature to
+    /// solar standards respectively.
     pub fn temperature_in_kelvin(luminosity_in_sols: f64, radius_in_au: f64) -> f64 {
         let temperature_in_sols = luminosity_in_sols.powf(0.25) / (radius_in_au / consts::SOLAR_RADII_PER_AU).powf(0.5);
         temperature_in_sols * consts::SOLAR_TEMPERATURE_IN_KELVIN
@@ -680,6 +780,40 @@ impl Star {
         spectral_number + spectral_number_adjustment
     }
 
+    /// Calculates and updates the properties of a star based on its spectral characteristics.
+    ///
+    /// This method uses various functions to compute the star's maximum mass, current mass,
+    /// spectral number, radius, luminosity, effective temperature, estimated main sequence lifetime,
+    /// age, and the radii of its ecosphere and greenhouse zones. Each property is calculated based
+    /// on predefined relationships between the star's spectral class, luminosity class, and other
+    /// stellar parameters.
+    ///
+    /// # Updates
+    /// - `max_mass_in_sols`: Maximum mass in solar masses, calculated based on spectral and luminosity class.
+    /// - `mass_in_sols`: Current mass in solar masses, derived from the maximum mass.
+    /// - `spectral_number`: Updated spectral number based on current mass.
+    /// - `radius_in_au`: Stellar radius in astronomical units, recalculated for current mass.
+    /// - `luminosity_in_sols`: Luminosity in solar luminosities, adjusted for current mass.
+    /// - `temperature_in_kelvin`: Effective surface temperature in Kelvin.
+    /// - `main_seq_life`: Estimated main sequence lifespan of the star in years.
+    /// - `age`: Current age of the star in years, calculated from its mass and luminosity.
+    /// - `r_ecosphere`: Radius of the ecosphere in astronomical units, important for habitable zone calculations.
+    /// - `r_greenhouse`: Greenhouse radius based on the ecosphere radius.
+    ///
+    /// Each calculation depends on empirical or theoretical models that relate these properties
+    /// to the mass, luminosity, and spectral characteristics of the star. Errors in deriving
+    /// any property can throw exceptions, particularly if spectral information cannot be resolved.
+    ///
+    /// # Example
+    /// ```
+    /// let mut star = Star::new(SpectralClass::G, LuminosityClass::V, 5);
+    /// star.calculate_properties();
+    /// println!("Temperature of the star: {} K", star.temperature_in_kelvin);
+    /// ```
+    ///
+    /// The method ensures that all properties are consistent with the star's current state, making
+    /// it crucial for initializing or updating a star's characteristics during simulations or
+    /// observational adjustments.
     pub fn calculate_properties(&mut self) {
         self.max_mass_in_sols =
             SpectralInfo::get_max_mass(self.luminosity_class, self.spectral_class, self.spectral_number)
@@ -696,20 +830,34 @@ impl Star {
         self.r_greenhouse = Star::r_greenhouse(self.r_ecosphere);
     }
 
-    /// Parses the specification of a star from a command-line input string, typically provided with the "-t" flag.
+    /// Constructs a `Star` from a string input detailing its spectral type and orbit, typically provided with the "-t" flag
+    /// in the command-line interface. The input format is expected to be "{SpectralClass}{SpectralNumber}/{LuminosityClass}/{Orbit}",
     ///
-    /// This function interprets the input string to extract and construct a `Star` object. The input format
-    /// is expected to be "SpectralClassSpectralNumber/LuminosityClassOrbit", where:
-    /// - `SpectralClass` is a single character (e.g., 'G').
-    /// - `SpectralNumber` is an integer (e.g., 3).
-    /// - `LuminosityClass` is a single character (e.g., 'M').
+    /// This function parses a string formatted with spectral information followed by an orbital radius,
+    /// expecting the format `{SpectralClass}/{OrbitalRadius}`. It extracts the spectral class, luminosity class,
+    /// and spectral number from the string to create a `Star` instance.
     ///
     /// # Parameters
-    /// - `input`: A string slice representing the star's spectral and luminosity information.
-    /// - `orbital_radius_in_au`: The orbital radius in astronomical units, not parsed from the input but provided separately.
+    /// - `input`: A string slice containing the star's spectral information and intended orbit.
+    /// - `orbital_radius_in_au`: The orbital radius in astronomical units (AU) provided separately.
     ///
     /// # Returns
-    /// Returns a `Result
+    /// - `Ok(Star)`: A new `Star` instance if the input is correctly formatted and valid.
+    /// - `Err(&'static str)`: An error message if the input format is incorrect or parsing fails.
+    ///
+    /// # Errors
+    /// - The function returns an error if the input does not contain exactly two parts separated by '/'.
+    /// - It also checks if the spectral information is at least three characters long to extract the class and number.
+    /// - Errors occur if the spectral class or number cannot be parsed correctly.
+    ///
+    /// # Examples
+    /// ```
+    /// let star = Star::from_str("G2V/1.5", 1.5);
+    /// assert!(star.is_ok());
+    /// ```
+    ///
+    /// This method is essential for initializing `Star` objects based on textual data, often used in data imports
+    /// or user interfaces where stars are configured or modified dynamically.
     pub fn from_str(input: &str, orbital_radius_in_au: f64) -> Result<Star, &'static str> {
         // TODO: remove the /orbit part of the input string
         let parts: Vec<&str> = input.split('/').collect();
@@ -741,7 +889,26 @@ impl Star {
         ))
     }
 
-    /// Generates a random star (main sequence, dwarf, giant or supergiant), calculating mass, luminosity, etc.
+    /// Generates a random `Star` based on statistical likelihoods of star types.
+    ///
+    /// This function simulates the distribution of different types of stars according to observed astronomical data.
+    /// It randomly assigns a luminosity class (main sequence, white dwarf, giant, or supergiant) based on their relative
+    /// frequencies in the local stellar neighborhood, as described by George Abell in "Exploration of the Universe".
+    ///
+    /// # Parameters
+    /// - `orbital_radius_in_au`: The orbital radius of the star in astronomical units (AU).
+    ///
+    /// # Returns
+    /// - A new instance of `Star` with properties set according to the randomly selected star type.
+    ///
+    /// # Statistical Distribution
+    /// - Main Sequence Stars: 90%
+    /// - White Dwarfs: 9%
+    /// - Giants and Supergiants: 1% (with giants being more common within this category)
+    ///
+    /// This method is useful for simulating realistic star systems in astronomical models or virtual universes, where
+    /// the variety and distribution of star types can significantly influence the dynamics and characteristics of
+    /// the system.
     pub fn random(orbital_radius_in_au: f64) -> Self {
         // According to George Abell's "Exploration of the Universe", (fourth
         // edition), about 90% of all stars in the local neighborhood are main-
@@ -776,44 +943,63 @@ impl Star {
         )
     }
 
-    pub fn new(
-        spectral_class: SpectralClass,
-        luminosity_class: LuminosityClass,
-        spectral_number: i32,
-        orbital_radius_in_au: f64,
-    ) -> Self {
-        let max_mass_in_sols = SpectralInfo::get_max_mass(luminosity_class, spectral_class, spectral_number)
-            .expect("Star::from_str failed to find spectral info");
-        let mass_in_sols = Star::mass_in_sols(max_mass_in_sols);
-        let e = Star::random_eccentricity(orbital_radius_in_au);
-        let luminosity_in_sols = Star::luminosity_in_sols(mass_in_sols, luminosity_class);
-
-        let body = Body::new(orbital_radius_in_au, e, mass_in_sols, MassType::Star, 0.0, 0.0);
-        let accretion_disk = AccretionDisk::new(body, luminosity_in_sols, orbital_radius_in_au);
-
-        let mut star = Star {
-            luminosity_class,
-            spectral_class,
-            spectral_number,
-            temperature_in_kelvin: 0.0,
-            orbital_radius_in_au,
-            max_mass_in_sols,
-            mass_in_sols,
-            radius_in_au: 0.0,
-            luminosity_in_sols: 0.0,
-            age: 0.0,
-            main_seq_life: 0.0,
-            r_ecosphere: 0.0,
-            r_greenhouse: 0.0,
-            accretion_disk,
-        };
-
+    /// Constructs a new `Star` with specified spectral characteristics and orbital properties.
+    ///
+    /// Initializes a `Star` with given spectral class, luminosity class, spectral number, and orbital radius.
+    /// The star is set up with default properties and then specific characteristics are applied, including calculating
+    /// dependent properties like mass and luminosity. If the star is a primary star (central star of a star system),
+    /// its orbital radius is set to zero.
+    ///
+    /// # Parameters
+    /// - `spectral_class`: The spectral class of the star (e.g., O, B, A, etc.).
+    /// - `luminosity_class`: The class of luminosity which includes Main Sequence, Giant, Supergiant, etc.
+    /// - `spectral_number`: A numerical identifier within the spectral class, often used to specify a subclass.
+    /// - `a`: The orbital radius of the star in astronomical units (AU); typically zero for primary stars.
+    ///
+    /// # Returns
+    /// - Returns a new instance of `Star` configured with the specified properties and an initial set of calculations
+    ///   for physical characteristics derived from its spectral information.
+    ///
+    /// # Example
+    /// ```rust
+    /// let new_star = Star::new(SpectralClass::G, LuminosityClass::MainSequence, 5, 0.0);
+    /// ```
+    ///
+    /// This method is typically used to create stars as part of modeling a star system where the properties of stars
+    /// vary significantly based on their spectral type and position within their respective systems.
+    pub fn new(spectral_class: SpectralClass, luminosity_class: LuminosityClass, spectral_number: i32, a: f64) -> Self {
+        // Create a default star, fill out the base properties and tell it to calculate dependent properties like mass, luminosity, etc.
+        let mut star = Star::default();
+        star.spectral_class = spectral_class;
+        star.luminosity_class = luminosity_class;
+        star.spectral_number = spectral_number;
         star.calculate_properties();
+
+        // If it's the primary, its orbital radius is zero
+        star.a = a;
+
+        star.body = Body::new(
+            a,
+            Star::random_eccentricity(a),
+            star.mass_in_sols,
+            MassType::Star,
+            star.radius_in_au,
+            0.0,
+            0.0,
+            None,
+        );
+        star.body.accretion_disk = Some(Rc::new(RefCell::new(AccretionDisk::new(
+            &star.body,
+            star.luminosity_in_sols,
+        ))));
+
         star
     }
 
     pub fn accrete(&mut self) -> &mut Self {
-        self.accretion_disk.accrete();
+        if let Some(accretion_disk) = &self.body.accretion_disk {
+            accretion_disk.borrow_mut().accrete();
+        }
         self
     }
 }

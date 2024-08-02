@@ -24,10 +24,6 @@ pub const SUN_MASS_IN_EARTH_MASSES: f64 = 332775.64;
 pub const SOLAR_RADII_PER_AU: f64 = 4.652E-3; // Number of solar radii per AU
 pub const SOLAR_TEMPERATURE_IN_KELVIN: f64 = 5777.0; // Effective temperature of the sun in Kelvin
 
-pub const CM_PER_AU: f64 = 1.495978707E13; // number of cm in an AU
-pub const CM_PER_KM: f64 = 1.0E5; // number of cm in a km
-pub const KM_PER_AU: f64 = CM_PER_AU / CM_PER_KM;
-
 pub const GREENHOUSE_EFFECT_CONST: f64 = 0.93; // affects inner radius..
 pub const K: f64 = 50.0; // K = gas/dust ratio
 pub const B: f64 = 1.2E-5; // Used in Crit_mass calc
@@ -38,6 +34,9 @@ pub const TRIVIAL_MASS: f64 = 1.0E-14; // Units of solar masses
 
 #[allow(dead_code)]
 mod unused_constants {
+    pub const CM_PER_AU: f64 = 1.495978707E13; // number of cm in an AU
+    pub const CM_PER_KM: f64 = 1.0E5; // number of cm in a km
+    pub const KM_PER_AU: f64 = CM_PER_AU / CM_PER_KM;
     pub const RADIANS_PER_ROTATION: f64 = 2.0 * std::f32::consts::PI as f64;
     pub const CHANGE_IN_EARTH_ANG_VEL: f64 = -1.3E-15; // Units of radians/sec/year
     pub const SOLAR_MASS_IN_GRAMS: f64 = 1.989E33; // Units of grams

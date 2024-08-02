@@ -1,62 +1,90 @@
 // src/orbital_body.rs
 
-use crate::types::MassType;
-use crate::{consts, get_log_level, log}; // Import the Star struct
+use crate::{accretion_disk::AccretionDisk, consts, get_log_level, log, types::MassType};
+use std::{cell::RefCell, rc::Rc};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Body {
     pub a: f64,
     pub e: f64,
-    pub mass: f64,
+    pub mass_in_sols: f64,
     pub mass_type: MassType,
+    pub radius_in_au: f64,
     pub local_dust_density: f64,
     pub critical_mass_limit: f64, // The mass at which the body begins to accrete gas
+    pub accretion_disk: Option<Rc<RefCell<AccretionDisk>>>,
 }
 impl Default for Body {
     fn default() -> Self {
         Body {
             a: 0.0,
             e: 0.0,
-            mass: 0.0,
+            mass_in_sols: 0.0,
             mass_type: MassType::Planet,
+            radius_in_au: 0.0,
             local_dust_density: 0.0,
             critical_mass_limit: 0.0,
+            accretion_disk: None, // Start without an accretion disk
         }
     }
 }
 impl Body {
-    /// Constructs a new `Body` with specified orbital and physical properties.
+    /// Constructs a new `Body` instance representing a celestial object in the simulation.
     ///
-    /// This constructor initializes a `Body` with given values for semi-major axis (`a`), eccentricity (`e`),
-    /// mass, and type of mass (`mass_type`). The `Body` created represents a celestial body with these characteristics,
-    /// which can be a star, planet, or gas giant depending on `mass_type`.
+    /// This method initializes a `Body` with specified orbital parameters, physical properties,
+    /// and an optional link to an `AccretionDisk`. This function is versatile, allowing for the
+    /// creation of various types of celestial bodies such as stars, planets, or gas giants, based
+    /// on the passed `mass_type`.
     ///
-    /// # Parameters
-    /// - `a`: Semi-major axis of the body's orbit in astronomical units (AU). This defines the average distance
-    ///        of the body from the central star or point of orbit.
-    /// - `e`: Eccentricity of the orbit. A unitless measure that defines the shape of the orbit, where 0 is a
-    ///        perfect circle and values approaching 1 indicate more elongated ellipses.
-    /// - `mass`: Mass of the body in solar masses.
-    /// - `mass_type`: A `MassType` enum indicating whether the body is a star, planet, or gas giant.
+    /// # Parameters:
+    /// - `a`: The semi-major axis of the orbit in astronomical units (AU).
+    /// - `e`: The eccentricity of the orbit.
+    /// - `mass`: The mass of the body in solar masses.
+    /// - `mass_type`: The type of the celestial body (e.g., Star, Planet, GasGiant).
+    /// - `radius_in_au`: The radius of the body in astronomical units.
+    /// - `local_dust_density`: The local density of dust around the body.
+    /// - `critical_mass_limit`: The critical mass limit at which the body can begin to accrete gas.
+    /// - `accretion_disk`: An optional reference-counted, mutable reference to an `AccretionDisk`
+    ///   representing the disk in which the body is located.
     ///
-    /// # Returns
-    /// Returns a new instance of `Body`.
+    /// # Returns:
+    /// A new instance of `Body` fully initialized with the provided values.
     ///
+    /// # Examples:
+    /// Creating a new planet with specific properties:
+    /// ```rust
+    /// let planet = Body::new(
+    ///     1.0, // AU
+    ///     0.01, // Eccentricity
+    ///     0.000003, // Mass in solar masses
+    ///     MassType::Planet, // Body type
+    ///     0.0005, // Radius in AU
+    ///     0.02, // Local dust density
+    ///     0.1, // Critical mass limit for gas accretion
+    ///     None, // Optional accretion disk
+    /// );
+    /// ```
+    ///
+    /// This example sets up a planetary body with a specified orbit, mass, and environmental conditions.
     pub fn new(
         a: f64,
         e: f64,
         mass: f64,
         mass_type: MassType,
+        radius_in_au: f64,
         local_dust_density: f64,
         critical_mass_limit: f64,
+        accretion_disk: Option<Rc<RefCell<AccretionDisk>>>,
     ) -> Self {
         Body {
             a,
             e,
-            mass,
+            mass_in_sols: mass,
             mass_type,
+            radius_in_au,
             local_dust_density,
             critical_mass_limit,
+            accretion_disk,
         }
     }
 
@@ -102,11 +130,11 @@ impl Body {
     }
 
     pub fn is_trivial_mass(&self) -> bool {
-        self.mass < consts::TRIVIAL_MASS
+        self.mass_in_sols < consts::TRIVIAL_MASS
     }
 
     pub fn mass_in_earth_masses(&self) -> f64 {
-        self.mass * consts::SUN_MASS_IN_EARTH_MASSES
+        self.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES
     }
 
     /// Inserts a new `Body` into a sorted vector of `Body` objects, maintaining the order by the semi-major axis `a`.
@@ -161,6 +189,27 @@ impl Body {
         consts::B * (perihelion * luminosity.sqrt()).powf(-0.75)
     }
 
+    /// Calculates the Roche limit of a primary body for a fluid satellite.
+    /// The Roche limit is the minimum distance at which a satellite can orbit a primary body without being torn apart by tidal forces.
+    /// This function assumes that both the primary and the satellite are of similar density, a condition which simplifies the formula.
+    ///
+    /// The formula used here is:
+    /// d = R * (2 * (ρ_M / ρ_m))^(1/3)
+    /// Where:
+    /// - R is the radius of the primary body.
+    /// - ρ_M and ρ_m are the densities of the primary body and the satellite, respectively.
+    /// Given that ρ_M ≈ ρ_m for our purposes, the formula simplifies to approximately:
+    /// d = 2.44 * R
+    ///
+    /// # Parameters:
+    /// - `primary_radius_in_au`: The radius of the primary body in the same units as the desired Roche limit.
+    ///
+    /// # Returns:
+    /// - The Roche limit in the same units as the input radius.
+    pub fn roche_limit_in_au(&self) -> f64 {
+        2.44 * self.radius_in_au
+    }
+
     /// Performs a collision between two celestial bodies, updating their orbital and physical properties.
     ///
     /// This function calculates the new orbital semi-major axis (`a`), eccentricity (`e`), and combined mass after
@@ -171,12 +220,13 @@ impl Body {
     /// - `other`: A reference to the other `Body` involved in the collision.
     ///
     pub fn collide(&mut self, other: &Body) {
-        let new_a = (self.mass + other.mass) / ((self.mass / self.a) + (other.mass / other.a));
+        let new_a =
+            (self.mass_in_sols + other.mass_in_sols) / ((self.mass_in_sols / self.a) + (other.mass_in_sols / other.a));
 
         // Calculate new eccentricity 'e'
-        let angular_momentum = self.mass * self.a.sqrt() * (1.0 - self.e.powf(2.0)).sqrt()
-            + other.mass * other.a.sqrt() * (1.0 - other.e.powf(2.0)).sqrt();
-        let new_angular_momentum = angular_momentum / ((self.mass + other.mass) * new_a.sqrt());
+        let angular_momentum = self.mass_in_sols * self.a.sqrt() * (1.0 - self.e.powf(2.0)).sqrt()
+            + other.mass_in_sols * other.a.sqrt() * (1.0 - other.e.powf(2.0)).sqrt();
+        let new_angular_momentum = angular_momentum / ((self.mass_in_sols + other.mass_in_sols) * new_a.sqrt());
         let new_e_squared = 1.0 - new_angular_momentum.powf(2.0);
         let new_e = if new_e_squared < 0.0 || new_e_squared >= 1.0 {
             0.0
@@ -187,7 +237,7 @@ impl Body {
         // Update the mass
         self.a = new_a;
         self.e = new_e;
-        self.mass += other.mass;
+        self.mass_in_sols += other.mass_in_sols;
 
         // If the protoplanet had the misfortune to collide with a star, update the corresponding star
         if self.mass_type == MassType::Star {

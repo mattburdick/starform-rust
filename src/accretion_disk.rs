@@ -1,11 +1,8 @@
 // src/accretion_disk.rs
 
-use crate::{consts, get_log_level, log};
+use crate::{body::Body, consts, get_log_level, log, types::MassType};
 use rand::Rng;
-use std::{collections::VecDeque, fmt};
-
-use crate::body::Body;
-use crate::types::MassType;
+use std::{cell::RefCell, collections::VecDeque, fmt, rc::Rc};
 
 //---------------------------  Band  ------------------------------------------
 // This represents a band of dust/gas in the accretion disk
@@ -80,8 +77,8 @@ impl Band {
 
 #[derive(Debug, Clone)]
 pub struct AccretionDisk {
-    pub central_mass: Body,
-    pub luminosity: f64,         // The luminosity of the nearby star in solar luminosities
+    pub central_mass_in_sols: f64,
+    pub luminosity_in_sols: f64, // The luminosity of the nearby star in solar luminosities
     pub planet_inner_bound: f64, // Inner limit at which a body can exist in orbit about the central mass
     pub planet_outer_bound: f64, // Outer limit at which a body can exist in orbit about the central mass
     pub disk_inner_bound: f64,   // Inner limit of the accretion disk
@@ -102,7 +99,7 @@ impl fmt::Display for AccretionDisk {
                     f,
                     "{}{:.1}",
                     " ".repeat(distance),
-                    body.mass * consts::SUN_MASS_IN_EARTH_MASSES
+                    body.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES
                 )?;
             }
         }
@@ -131,7 +128,31 @@ impl fmt::Display for AccretionDisk {
     }
 }
 
+impl Default for AccretionDisk {
+    fn default() -> Self {
+        Self::new(&Body::default(), 0.0)
+    }
+}
+
 impl AccretionDisk {
+    /// Generates a random eccentricity value for an orbital body.
+    ///
+    /// This function simulates a distribution of eccentricities where values are more likely to be closer to 1.
+    /// It generates a random floating-point number between 0.0001 and 1.0, inclusive, to ensure non-zero eccentricity.
+    /// The resulting eccentricity is adjusted using a power function to skew towards higher values, simulating a more
+    /// realistic distribution of orbital eccentricities found in nature.
+    ///
+    /// The constant `ECCENTRICITY_COEFF` is used to control the skewness of the distribution towards higher values.
+    /// This constant should ideally reflect the typical distribution seen in celestial bodies.
+    ///
+    /// # Returns
+    /// A `f64` representing the eccentricity, adjusted to be typically closer to 1.
+    ///
+    /// # Examples
+    /// ```
+    /// let eccentricity = random_eccentricity();
+    /// println!("Generated eccentricity: {}", eccentricity);
+    /// ```
     pub fn random_eccentricity() -> f64 {
         let random_number_between_0_and_1: f64 = rand::thread_rng().gen_range(0.0001..=1.0);
         1.0 - (1.0 - random_number_between_0_and_1).powf(consts::ECCENTRICITY_COEFF)
@@ -204,7 +225,7 @@ impl AccretionDisk {
     /// Calculates the volume of a cylindrical shell (annular cylinder) given its dimensions.
     ///
     /// The volume is determined based on the inner and outer radii of the cylinder and the sum of xa and xp,
-    /// the gravitational influence of a mass at aphelion and perihelion respectively.
+    /// the gravitational influence of a mass at aphelion and perihelion respectively. All units are in AU.
     ///
     /// # Parameters
     /// - `r_inner`: The inner radius of the cylindrical shell in units (e.g., meters).
@@ -229,15 +250,50 @@ impl AccretionDisk {
     /// This calculates the volume of a cylindrical shell with an inner radius of 2 units, an outer radius of 3 units,
     /// and a total height of 2 units.
     pub fn volume(r_inner: f64, r_outer: f64, xp: f64, xa: f64) -> f64 {
-        let height = xa + xp; // Total height of the cylindrical shell
-        std::f32::consts::PI as f64 * height * (r_outer.powf(2.0) - r_inner.powf(2.0))
+        // Total height of the cylindrical shell
+        let height = xa + xp;
+
         // Calculating the volume
+        std::f32::consts::PI as f64 * height * (r_outer.powf(2.0) - r_inner.powf(2.0))
     }
 
-    /*--------------------------------------------------------------------------*/
-
-    /*--------------------------------------------------------------------------*/
-    /*--------------------------------------------------------------------------*/
+    /// Determines if a new body will collide with any existing bodies in the accretion disk.
+    ///
+    /// This method assesses potential collisions by comparing the orbital parameters of a new body
+    /// with those of existing bodies in the system. It calculates the gravitational influence range
+    /// for each body and checks if their orbits overlap, which would indicate a collision.
+    ///
+    /// # Parameters:
+    /// - `a`: Semi-major axis of the new body in astronomical units (AU).
+    /// - `e`: Eccentricity of the new body's orbit.
+    ///
+    /// # Returns:
+    /// - `(bool, usize)`: A tuple where the first element is a boolean indicating if a collision was found,
+    ///    and the second element is the index of the closest body that will collide with the new body, if any.
+    ///
+    /// # Process:
+    /// - Iterates over all bodies in the accretion disk.
+    /// - For each body, calculates the separation distance and compares it against the gravitational effect distances
+    ///   (`dist1` and `dist2`), which represent the maximum reach of gravitational influence for both the new body
+    ///   and the existing bodies.
+    /// - Determines if the new body's orbit intersects with the orbit of any existing body by checking if the
+    ///   separation is less than or equal to the gravitational influence distance of either body.
+    /// - Keeps track of the closest body that the new body might collide with.
+    ///
+    /// # Example:
+    /// ```rust
+    /// let mut accretion_disk = AccretionDisk::new(...);
+    /// let new_body_a = 5.0; // Semi-major axis in AU
+    /// let new_body_e = 0.1; // Eccentricity
+    /// let (collision_found, closest_body_index) = accretion_disk.find_collision(new_body_a, new_body_e);
+    /// if collision_found {
+    ///     println!("Collision is likely with body at index {}", closest_body_index);
+    /// }
+    /// ```
+    ///
+    /// # Notes:
+    /// - The function returns immediately if a collision is detected, with the closest colliding body.
+    /// - This approach assumes a simplified model where bodies are treated as points without physical size, focusing only on their orbital parameters.
     fn find_collision(&mut self, a: f64, e: f64) -> (bool, usize) {
         let mut closest_neighbor = 0;
         let mut found_collision = false;
@@ -254,7 +310,7 @@ impl AccretionDisk {
              *  separation of the two planets is less than the gravitational
              *  effects distance of either.
              */
-            let reduced_mass = (body.mass / (1.0 + body.mass)).powf(0.25);
+            let reduced_mass = (body.mass_in_sols / (1.0 + body.mass_in_sols)).powf(0.25);
             let dist1;
             let dist2;
             if separation > 0.0 {
@@ -297,24 +353,48 @@ impl AccretionDisk {
         (found_collision, closest_neighbor)
     }
 
-    /*--------------------------------------------------------------------------*/
-    /*  Given a mass at a particular orbit, this function repeatedly calls      */
-    /*  'collect_dust' to sweep up any dust and gas it can.  Each successive    */
-    /*  call to 'collect_dust' is done with the original mass plus additional   */
-    /*  mass from sweeping up dust previously.  The process stops when the mass */
-    /*  accumulation slows.                                                     */
-    /*--------------------------------------------------------------------------*/
-    fn accrete_dust(&mut self, mut body: Body) -> f64 {
+    /// Simulates the process of dust and gas accretion for a celestial body in an accretion disk.
+    ///
+    /// This function iteratively simulates the process of a celestial body, represented by the `Body` struct,
+    /// sweeping up dust and gas from its orbital path. It repeatedly calls the `collect_dust` method, which
+    /// increases the body's mass based on the amount of dust and gas it can accrete during each iteration.
+    /// The process continues until the additional mass gained in an iteration is less than 0.01% of the total mass,
+    /// indicating that accretion has slowed down significantly.
+    ///
+    /// During the accretion process, if the body's mass exceeds the `critical_mass_limit`, it is classified as a
+    /// `GasGiant`. After the loop concludes, the function checks the entire accretion disk to determine if any
+    /// dust is left, updating the `dust_left` flag accordingly.
+    ///
+    /// Detailed logging is provided throughout the accretion process, including the final mass, orbital distance,
+    /// number of iterations taken, and gravitational effect limits if the logging level is sufficiently high.
+    ///
+    /// # Arguments
+    /// * `body` - A mutable reference to the `Body` being accreted upon.
+    ///
+    /// # Returns
+    /// Returns the updated `Body` struct after accretion.
+    ///
+    /// # Examples
+    /// ```
+    /// let mut body = Body {
+    ///     mass_in_sols: 0.05,
+    ///     critical_mass_limit: 0.08,
+    ///     ... // other fields
+    /// };
+    /// let accreted_body = accretion_disk.accrete_dust(body);
+    /// println!("New mass in solar masses: {}", accreted_body.mass_in_sols);
+    /// ```
+    fn accrete_dust(&mut self, mut body: Body) -> Body {
         let mut loop_count = 0;
         loop {
             loop_count += 1;
-            let old_mass = body.mass;
-            body.mass = self.collect_dust(body);
-            if body.mass >= body.critical_mass_limit {
+            let old_mass = body.mass_in_sols;
+            body.mass_in_sols = self.collect_dust(&body);
+            if body.mass_in_sols >= body.critical_mass_limit {
                 body.mass_type = MassType::GasGiant;
             }
 
-            if (body.mass - old_mass) <= (0.0001 * old_mass) {
+            if (body.mass_in_sols - old_mass) <= (0.0001 * old_mass) {
                 break;
             }
         }
@@ -334,13 +414,13 @@ impl AccretionDisk {
             1,
             "Accreted a {} of {:.3} Earth masses at {:.3} AU over {loop_count} iterations (critical mass limit: {:.3} Earth masses)",
             body.mass_type,
-            body.mass * consts::SUN_MASS_IN_EARTH_MASSES,
+            body.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES,
             body.a,
             body.critical_mass_limit * consts::SUN_MASS_IN_EARTH_MASSES
         );
 
         if log_level >= 2 {
-            let (r_inner, r_outer, xp, xa) = Body::gravitational_effect_limits(body.a, body.e, body.mass);
+            let (r_inner, r_outer, xp, xa) = Body::gravitational_effect_limits(body.a, body.e, body.mass_in_sols);
             log!(
                 log_level,
                 2,
@@ -352,33 +432,44 @@ impl AccretionDisk {
             );
         }
 
-        body.mass
+        body
     }
 
-    /*--------------------------------------------------------------------------*/
-    /*  This routine compares the location of a test mass with the location     */
-    /*  of any dust and gas bands remaining.  Any dust band that lies within    */
-    /*  the object's range of gravitational effect (from 'r_inner' to 'r_outer')*/
-    /*  is swept up by the object.  Additionally, if the object's mass is       */
-    /*  greater than the critical mass, gas is also collected by the object.    */
-    /*                                                                          */
-    /*  The new mass for the object is returned.                                */
-    /*                                                                          */
-    /*  VARIABLES PASSED IN:                                                    */
-    /*    mass         Mass of the accreting object (Solar masses)              */
-    /*    a            Distance from the primary star (AUs)                     */
-    /*    e            Eccentricity of the object's orbit                       */
-    /*    crit_mass    Mass at which, for this orbit and star, a normal planet  */
-    /*                 begins to sweep up gas as well as dust and become a      */
-    /*                 gas giant.                                               */
-    /*    dust_head    Pointer to the head of the dust band list                */
-    /* */
-    /*  LOCAL VARIABLES:                                                        */
-    /*    r_inner      Innermost gravitational effect limit of the object       */
-    /*    r_outer      Outermost gravitational effect limit of the object       */
-    /*                                                                          */
-    /*--------------------------------------------------------------------------*/
-    pub fn collect_dust(&mut self, protoplanet: Body) -> f64 {
+    /// Simulates the accretion process by a celestial body collecting dust and gas within its gravitational influence.
+    ///
+    /// This function iterates over each dust and gas band in the accretion disk, determining if the band falls within
+    /// the gravitational effect limits (from 'r_inner' to 'r_outer') of the provided celestial body (`protoplanet`). If a band
+    /// is within the influence range, it checks if the protoplanet's mass is sufficient to collect dust and, if the mass
+    /// exceeds the critical mass, gas as well. Bands within the range but without sufficient mass or lacking dust/gas
+    /// are skipped.
+    ///
+    /// The function updates the mass of the protoplanet by adding the mass of the dust and gas collected. It also
+    /// manages the creation of new bands for gaps created by partial band accretion. These new bands are stored
+    /// temporarily and merged into the main list of bands at the end of the operation.
+    ///
+    /// # Parameters
+    /// * `protoplanet`: A reference to the `Body` struct representing the accreting celestial body.
+    ///
+    /// # Returns
+    /// Returns the new total mass of the protoplanet after the accretion process.
+    ///
+    /// # Side Effects
+    /// * Modifies the list of bands within the `AccretionDisk` to reflect dust and gas depletion and new band formation.
+    /// * Updates the `dust_left` flag of the `AccretionDisk` based on remaining dust in any band.
+    ///
+    /// # Example
+    /// ```
+    /// let mut accretion_disk = AccretionDisk::new(...);
+    /// let mut protoplanet = Body {
+    ///     mass_in_sols: 0.05,
+    ///     a: 5.0,
+    ///     e: 0.1,
+    ///     ... // other fields
+    /// };
+    /// let new_mass = accretion_disk.collect_dust(&protoplanet);
+    /// println!("New mass after accretion: {}", new_mass);
+    /// ```
+    pub fn collect_dust(&mut self, protoplanet: &Body) -> f64 {
         // The injected mass has inner and outer effect limits based on size of the mass, its orbit, and eccentricity.
         // We will accumulate mass from all the dust and gas bands into "mass".
 
@@ -386,9 +477,9 @@ impl AccretionDisk {
         // The inner and outer effect limits are the distances from the primary star at which the mass can affect the dust bands.
         // xa and xp represent the aphelion and parahelion distances from the orbital plane at which the mass can affect the dust bands.
         let (r_inner, r_outer, xp, xa) =
-            Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass);
+            Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass_in_sols);
 
-        let mut new_mass = protoplanet.mass;
+        let mut new_mass = protoplanet.mass_in_sols;
 
         // Sweeping out dust from part of a band may create gaps represented as new bands that need to be added to the list.
         // We'll store them in a queue and add them after we've iterated over all the bands.
@@ -453,23 +544,58 @@ impl AccretionDisk {
 
         Band::merge_neighbors(&mut self.bands);
 
+        // TODO: do we neeed to update the bands in the body?
         // // Now update `dust_left` based on whether any band still has dust.
         // self.dust_left = self.bands.iter().any(|band| band.dust_present);
 
         new_mass
     }
 
-    /// docs go here
-    pub fn new(central_mass: Body, luminosity: f64, distance_from_primary_star_in_au: f64) -> Self {
-        let planet_inner_bound = if central_mass.mass_type == MassType::Planet {
-            // The inner bound for moons is the Roche limit of the planet
-            let diameter_in_au = distance_from_primary_star_in_au * 2.0 / consts::KM_PER_AU;
-            2.44 * diameter_in_au
-        } else {
-            0.3 * central_mass.mass.powf(1.0 / 3.0)
-        };
+    /// Creates a new `AccretionDisk` around a primary body with specified luminosity.
+    ///
+    /// This method initializes an `AccretionDisk` with bounds calculated based on the gravitational
+    /// and luminous characteristics of the primary body. It considers both the physical limits imposed
+    /// by the body's Roche limit and the effects of its luminosity on the surrounding dust and gas.
+    ///
+    /// # Parameters:
+    /// - `primary`: Reference to the central `Body` object around which the accretion disk forms.
+    /// - `luminosity_in_sols`: The luminosity of the primary body in solar luminosities.
+    ///
+    /// # Returns:
+    /// - `Self`: An instance of `AccretionDisk` with all fields initialized, including calculated
+    ///   inner and outer bounds for planets and the dust/gas disk.
+    ///
+    /// # Calculations:
+    /// - `planet_inner_bound`: Calculated as the minimum of the Roche limit and a factor of the primary's
+    ///   mass if the body has significant luminosity.
+    /// - `planet_outer_bound`: Set to a function of the primary's mass, typically 50 times the cube root
+    ///   of the mass.
+    /// - `disk_inner_bound` and `disk_outer_bound`: Define the range of the dust and gas disk. The inner
+    ///   bound is set by the gravitational effect limits at the inner planet bound with zero eccentricity.
+    ///   The outer bound is similarly set but adjusted based on stellar properties and might be truncated
+    ///   based on the type of star.
+    ///
+    /// # Example Usage:
+    /// ```rust
+    /// let primary_star = Body {
+    ///     mass_in_sols: 1.0,
+    ///     a: 0.0,
+    ///     e: 0.0,
+    ///     ...
+    /// };
+    /// let accretion_disk = AccretionDisk::new(&primary_star, 1.0);
+    /// ```
+    ///
+    /// The created accretion disk includes a vector of bands representing the initial distribution of dust
+    /// and gas based on the calculated boundaries.
+    pub fn new(primary: &Body, luminosity_in_sols: f64) -> Self {
+        // Choose the lower of the Roche limit for a fluid satellite and a limit due to the luminosity of the central star (if any)
+        let mut planet_inner_bound = primary.roche_limit_in_au();
+        if luminosity_in_sols > 0.0 {
+            planet_inner_bound = planet_inner_bound.min(0.3 * primary.mass_in_sols.powf(1.0 / 3.0));
+        }
 
-        let planet_outer_bound = 50.0 * central_mass.mass.powf(1.0 / 3.0);
+        let planet_outer_bound = 50.0 * primary.mass_in_sols.powf(1.0 / 3.0);
 
         /*
          *	Figure out the innermost and outermost extent of the dust/gas
@@ -483,15 +609,15 @@ impl AccretionDisk {
             Body::gravitational_effect_limits(planet_outer_bound, 0.0, consts::PROTOPLANET_MASS);
 
         // Depending on the type of star, the outer limit of the dust cloud may be less
-        disk_outer_bound = disk_outer_bound.min(Self::stell_dust_limit(central_mass.mass, 0.0, central_mass.mass_type));
+        disk_outer_bound = disk_outer_bound.min(Self::stell_dust_limit(primary.mass_in_sols, 0.0, primary.mass_type));
 
         // Init the bands of dust / gas in the accretion disk
         let mut bands: Vec<Band> = Vec::new();
         Band::insert(&mut bands, Band::new(disk_inner_bound, disk_outer_bound));
 
         AccretionDisk {
-            luminosity,
-            central_mass,
+            luminosity_in_sols,
+            central_mass_in_sols: primary.mass_in_sols,
             planet_inner_bound,
             planet_outer_bound,
             disk_inner_bound,
@@ -502,8 +628,40 @@ impl AccretionDisk {
         }
     }
 
+    /// Simulates the accretion process within an accretion disk by creating and evolving protoplanets.
+    ///
+    /// This function repeatedly checks for dust presence in the accretion disk and initiates the
+    /// accretion process by creating protoplanets in bands where dust is available. Each protoplanet
+    /// undergoes dust and gas accumulation based on its gravitational influence range. The function
+    /// checks for possible collisions with existing bodies in the system and handles them accordingly.
+    ///
+    /// # Workflow:
+    /// 1. Determine if there's any dust left to accrete.
+    /// 2. Randomly determine the eccentricity for the protoplanet.
+    /// 3. Locate a dust band that still contains dust.
+    /// 4. Randomly choose an orbital distance within the dust band's effective gravitational range.
+    /// 5. Instantiate a protoplanet at the chosen location with initial properties.
+    /// 6. Calculate the protoplanet's gravitational effect limits and ensure there's dust available in that range.
+    /// 7. Accrete dust and gas onto the protoplanet until the mass increment becomes trivial.
+    /// 8. If the protoplanet collides with another body, merge them and reaccrete dust as needed.
+    /// 9. If no collision occurs and the protoplanet achieves or exceeds the critical mass limit, classify it as a Gas Giant.
+    /// 10. Add the protoplanet to the system if it remains after potential collisions.
+    ///
+    /// # Returns
+    /// Returns a mutable reference to the `AccretionDisk` to allow for chaining and further modifications.
+    ///
+    /// # Example
+    /// ```rust
+    /// let mut accretion_disk = AccretionDisk::new(...);
+    /// accretion_disk.accrete();
+    /// println!("Accretion process completed: {}", accretion_disk);
+    /// ```
+    ///
+    /// # Panics
+    /// Panics if no dust band with dust is found, indicating an error in managing the state of the disk.
+    /// Also, it will panic if the calculated bounds for the planet's orbit are out of expected range,
+    /// which could indicate incorrect initialization or corruption of disk state.
     pub fn accrete(&mut self) -> &mut Self {
-        // return self;
         while self.dust_left {
             let e = Self::random_eccentricity();
             let log_level = *get_log_level!();
@@ -542,11 +700,13 @@ impl AccretionDisk {
                 e,
                 consts::PROTOPLANET_MASS,
                 MassType::Planet,
-                Self::dust_density(self.central_mass.mass, a),
-                Body::critical_limit(a, e, self.luminosity),
+                0.0, // The radius of the protoplanet is not used
+                Self::dust_density(self.central_mass_in_sols, a),
+                Body::critical_limit(a, e, self.luminosity_in_sols),
+                Some(Rc::new(RefCell::new(AccretionDisk::default()))),
             );
             let (eff_inner_bound, eff_outer_bound, _, _) =
-                Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass);
+                Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass_in_sols);
 
             if !self.dust_available(eff_inner_bound, eff_outer_bound) {
                 // This shouldn't happen as we've already checked for dust within gravitational effect range
@@ -560,7 +720,7 @@ impl AccretionDisk {
                 protoplanet.a
             );
 
-            protoplanet.mass = self.accrete_dust(protoplanet);
+            protoplanet = self.accrete_dust(protoplanet);
             if protoplanet.is_trivial_mass() {
                 log!(
                     log_level,
@@ -580,13 +740,14 @@ impl AccretionDisk {
                 body.collide(&protoplanet);
 
                 // Since it has grown in size, we need to check for more matter to accrete
-                body.mass = self.accrete_dust(body);
+                // body.mass_in_sols = self.accrete_dust(body.clone());
+                body = self.accrete_dust(body.clone());
 
                 // Now replace the original body back with the updated body.
                 self.bodies[closest_neighbor] = body;
             } else {
                 // The new planet won't collide with any other planet or star, so add it to the system
-                if protoplanet.mass >= protoplanet.critical_mass_limit {
+                if protoplanet.mass_in_sols >= protoplanet.critical_mass_limit {
                     protoplanet.mass_type = MassType::GasGiant;
                 }
                 Body::insert(&mut self.bodies, protoplanet);

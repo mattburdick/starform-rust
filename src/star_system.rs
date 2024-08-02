@@ -20,13 +20,7 @@ impl fmt::Display for StarSystem {
                     write!(f, "\nCompanion stars present at:\n")?;
                 }
             } else {
-                write!(
-                    f,
-                    "{:2} {} {:7.3} AU\n",
-                    index,
-                    star.stellar_classification(),
-                    star.orbital_radius_in_au
-                )?;
+                write!(f, "{:2} {} {:7.3} AU\n", index, star.stellar_classification(), star.a)?;
             }
         }
 
