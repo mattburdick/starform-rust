@@ -2,7 +2,8 @@
 
 use crate::{body::Body, consts, get_log_level, log, types::MassType};
 use rand::Rng;
-use std::{cell::RefCell, collections::VecDeque, fmt, rc::Rc};
+use std::sync::{Arc, RwLock};
+use std::{collections::VecDeque, fmt};
 
 //---------------------------  Band  ------------------------------------------
 // This represents a band of dust/gas in the accretion disk
@@ -703,7 +704,7 @@ impl AccretionDisk {
                 0.0, // The radius of the protoplanet is not used
                 Self::dust_density(self.central_mass_in_sols, a),
                 Body::critical_limit(a, e, self.luminosity_in_sols),
-                Some(Rc::new(RefCell::new(AccretionDisk::default()))),
+                Some(Arc::new(RwLock::new(AccretionDisk::default()))),
             );
             let (eff_inner_bound, eff_outer_bound, _, _) =
                 Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass_in_sols);

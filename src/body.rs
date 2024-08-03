@@ -1,7 +1,7 @@
 // src/orbital_body.rs
 
 use crate::{accretion_disk::AccretionDisk, consts, get_log_level, log, types::MassType};
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone)]
 pub struct Body {
@@ -12,7 +12,7 @@ pub struct Body {
     pub radius_in_au: f64,
     pub local_dust_density: f64,
     pub critical_mass_limit: f64, // The mass at which the body begins to accrete gas
-    pub accretion_disk: Option<Rc<RefCell<AccretionDisk>>>,
+    pub accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
 }
 impl Default for Body {
     fn default() -> Self {
@@ -74,7 +74,7 @@ impl Body {
         radius_in_au: f64,
         local_dust_density: f64,
         critical_mass_limit: f64,
-        accretion_disk: Option<Rc<RefCell<AccretionDisk>>>,
+        accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
     ) -> Self {
         Body {
             a,

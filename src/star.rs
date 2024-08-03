@@ -2,7 +2,8 @@
 
 use lazy_static::lazy_static;
 use rand::Rng;
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use std::sync::{Arc, RwLock};
+use std::{collections::HashMap, fmt};
 
 use crate::{accretion_disk::AccretionDisk, body::Body, consts, random, star::SpectralClass::*, types::MassType};
 
@@ -988,7 +989,7 @@ impl Star {
             0.0,
             None,
         );
-        star.body.accretion_disk = Some(Rc::new(RefCell::new(AccretionDisk::new(
+        star.body.accretion_disk = Some(Arc::new(RwLock::new(AccretionDisk::new(
             &star.body,
             star.luminosity_in_sols,
         ))));
@@ -997,8 +998,10 @@ impl Star {
     }
 
     pub fn accrete(&mut self) -> &mut Self {
+        // Check if there is an accretion disk and lock it for writing
         if let Some(accretion_disk) = &self.body.accretion_disk {
-            accretion_disk.borrow_mut().accrete();
+            let mut disk = accretion_disk.write().unwrap();
+            disk.accrete();
         }
         self
     }
