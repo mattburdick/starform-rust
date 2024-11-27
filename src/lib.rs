@@ -3,12 +3,12 @@
 use crate::star_system::StarSystem;
 
 mod accretion_disk;
-mod body;
+pub mod body;
 mod consts;
 mod random;
 pub mod star;
 pub mod star_system;
-mod types;
+pub mod types;
 
 #[macro_use]
 extern crate lazy_static;

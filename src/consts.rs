@@ -32,14 +32,15 @@ pub const ALPHA: f64 = 5.0; // Used in density calcs
 pub const N: f64 = 3.0; // Used in density calcs
 pub const TRIVIAL_MASS: f64 = 1.0E-14; // Units of solar masses
 
+pub const SOLAR_MASS_IN_GRAMS: f64 = 1.989E33; // Units of grams
+pub const CM_PER_KM: f64 = 1.0E5; // number of cm in a km
+pub const CM_PER_AU: f64 = 1.495978707E13; // number of cm in an AU
+pub const KM_PER_AU: f64 = CM_PER_AU / CM_PER_KM;
+
 #[allow(dead_code)]
 mod unused_constants {
-    pub const CM_PER_AU: f64 = 1.495978707E13; // number of cm in an AU
-    pub const CM_PER_KM: f64 = 1.0E5; // number of cm in a km
-    pub const KM_PER_AU: f64 = CM_PER_AU / CM_PER_KM;
     pub const RADIANS_PER_ROTATION: f64 = 2.0 * std::f32::consts::PI as f64;
     pub const CHANGE_IN_EARTH_ANG_VEL: f64 = -1.3E-15; // Units of radians/sec/year
-    pub const SOLAR_MASS_IN_GRAMS: f64 = 1.989E33; // Units of grams
     pub const EARTH_MASS_IN_GRAMS: f64 = 5.977E27; // Units of grams
     pub const MOON_MASS_IN_GRAMS: f64 = 7.47E25; // Units of grams
     pub const EARTH_RADIUS: f64 = 6.378E8; // Units of cm
@@ -113,16 +114,16 @@ mod unused_constants {
     // const WHITE_DWARF		3
     // const MAIN_SEQUENCE 	4
 
-    // The following defines are used in the kothari_radius function in file enviro.c.
-    pub const A1_20: f64 = 6.485E12; // All units are in cgs system.
-    pub const A2_20: f64 = 4.0032E-8; //   ie: cm, g, dynes, etc.
-    pub const BETA_20: f64 = 5.71E12;
-
     // The following defines are used in determining the fraction of a planet
     // covered with clouds in function cloud_fraction in file enviro.c.
     pub const Q1_36: f64 = 1.258E19; // grams
     pub const Q2_36: f64 = 0.0698; // 1/Kelvin
 }
+
+// The following defines are used in the calculate_kothari_radius function in file body.rs
+pub const A1_20: f64 = 6.485E12; // All units are in cgs system.
+pub const A2_20: f64 = 4.0032E-8; //   ie: cm, g, dynes, etc.
+pub const BETA_20: f64 = 5.71E12;
 
 // The following defines are for verbosity:
 // const  LEVEL1  1

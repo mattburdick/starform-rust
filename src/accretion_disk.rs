@@ -751,6 +751,8 @@ impl AccretionDisk {
                 if protoplanet.mass_in_sols >= protoplanet.critical_mass_limit {
                     protoplanet.mass_type = MassType::GasGiant;
                 }
+
+                protoplanet.initialize(self.luminosity_in_sols);
                 Body::insert(&mut self.bodies, protoplanet);
             }
 

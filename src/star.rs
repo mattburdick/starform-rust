@@ -1003,6 +1003,7 @@ impl Star {
             let mut disk = accretion_disk.write().unwrap();
             disk.accrete();
         }
+
         self
     }
 }

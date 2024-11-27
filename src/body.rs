@@ -4,14 +4,23 @@ use crate::{accretion_disk::AccretionDisk, consts, get_log_level, log, types::Ma
 use std::sync::{Arc, RwLock};
 
 #[derive(Debug, Clone)]
+enum OrbitalZone {
+    Zone1,
+    Zone2,
+    Zone3,
+}
+
+#[derive(Debug, Clone)]
 pub struct Body {
     pub a: f64,
     pub e: f64,
     pub mass_in_sols: f64,
     pub mass_type: MassType,
-    pub radius_in_au: f64,
+    pub radius_in_km: f64,
     pub local_dust_density: f64,
     pub critical_mass_limit: f64, // The mass at which the body begins to accrete gas
+    pub orbit_zone: OrbitalZone,
+    pub density_in_grams_per_cc: f64,
     pub accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
 }
 impl Default for Body {
@@ -21,9 +30,11 @@ impl Default for Body {
             e: 0.0,
             mass_in_sols: 0.0,
             mass_type: MassType::Planet,
-            radius_in_au: 0.0,
+            radius_in_km: 0.0,
             local_dust_density: 0.0,
             critical_mass_limit: 0.0,
+            orbit_zone: OrbitalZone::Zone1,
+            density_in_grams_per_cc: 0.0,
             accretion_disk: None, // Start without an accretion disk
         }
     }
@@ -41,7 +52,7 @@ impl Body {
     /// - `e`: The eccentricity of the orbit.
     /// - `mass`: The mass of the body in solar masses.
     /// - `mass_type`: The type of the celestial body (e.g., Star, Planet, GasGiant).
-    /// - `radius_in_au`: The radius of the body in astronomical units.
+    /// - `radius_in_km`: The radius of the body in km.
     /// - `local_dust_density`: The local density of dust around the body.
     /// - `critical_mass_limit`: The critical mass limit at which the body can begin to accrete gas.
     /// - `accretion_disk`: An optional reference-counted, mutable reference to an `AccretionDisk`
@@ -71,7 +82,7 @@ impl Body {
         e: f64,
         mass: f64,
         mass_type: MassType,
-        radius_in_au: f64,
+        radius_in_km: f64,
         local_dust_density: f64,
         critical_mass_limit: f64,
         accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
@@ -81,9 +92,11 @@ impl Body {
             e,
             mass_in_sols: mass,
             mass_type,
-            radius_in_au,
+            radius_in_km: radius_in_km,
             local_dust_density,
             critical_mass_limit,
+            orbit_zone: OrbitalZone::Zone1,
+            density_in_grams_per_cc: 0.0,
             accretion_disk,
         }
     }
@@ -207,7 +220,7 @@ impl Body {
     /// # Returns:
     /// - The Roche limit in the same units as the input radius.
     pub fn roche_limit_in_au(&self) -> f64 {
-        2.44 * self.radius_in_au
+        2.44 * self.radius_in_km / consts::KM_PER_AU
     }
 
     /// Performs a collision between two celestial bodies, updating their orbital and physical properties.
@@ -255,5 +268,185 @@ impl Body {
             self.a,
             new_a
         );
+    }
+
+    /// Calculates the orbital zone of a planet based on its semi-major axis and the stellar luminosity.
+    ///
+    /// The orbital zone is determined by comparing the planet's orbital radius to specific boundaries that depend on
+    /// the square root of the star's luminosity. The zones are defined as:
+    ///
+    /// - **Zone 1**: Orbital radius is less than `4 * sqrt(luminosity)`.
+    /// - **Zone 2**: Orbital radius is between `4 * sqrt(luminosity)` and `15 * sqrt(luminosity)`.
+    /// - **Zone 3**: Orbital radius is greater than or equal to `15 * sqrt(luminosity)`.
+    ///
+    /// # Parameters
+    ///
+    /// - `luminosity_in_sols`: The luminosity of the star relative to the Sun (dimensionless, where the Sun's luminosity is 1.0).
+    ///
+    /// # Returns
+    ///
+    /// An `OrbitalZone` enum variant indicating the orbital zone of the planet:
+    /// - `OrbitalZone::Zone1`
+    /// - `OrbitalZone::Zone2`
+    /// - `OrbitalZone::Zone3`
+    fn calculate_orbit_zone(&self, luminosity_in_sols: f64) -> OrbitalZone {
+        if self.a < 4.0 * luminosity_in_sols.sqrt() {
+            OrbitalZone::Zone1
+        } else if self.a < 15.0 * luminosity_in_sols.sqrt() {
+            OrbitalZone::Zone2
+        } else {
+            OrbitalZone::Zone3
+        }
+    }
+
+    /// Calculates the radius of a spherical object given its mass and density.
+    ///
+    /// # Returns
+    /// The radius of the object in kilometers.
+    ///
+    fn calculate_radius_from_density(&self) -> f64 {
+        // Convert mass from solar masses to grams
+        let mass_in_grams = self.mass_in_sols * consts::SOLAR_MASS_IN_GRAMS;
+
+        // Calculate volume in cubic centimeters (cm³)
+        let volume_cm3 = mass_in_grams / self.density_in_grams_per_cc;
+
+        // Calculate radius in centimeters using the formula for the volume of a sphere:
+        // volume = (4/3) * π * radius³
+        // Solving for radius:
+        // radius = ((3 * volume) / (4 * π))^(1/3)
+        let radius_cm = ((3.0 * volume_cm3) / (4.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
+
+        // Convert radius from centimeters to kilometers
+        let radius_km = radius_cm / consts::CM_PER_KM;
+
+        // Return the radius in kilometers
+        radius_km
+    }
+
+    /// Calculates the radius of a planet in kilometers using Kothari's formula.
+    ///
+    /// The mass passed in is in units of solar masses. This formula is based on
+    /// Kothari's equation from "The Internal Constitution of Planets" by Dr. D. S. Kothari,
+    /// Mon. Not. of the Royal Astronomical Society, vol 96 pp.833-843, 1936.
+    /// Specifically, this is Kothari's eq.23, which appears on page 840.
+    ///
+    /// # Returns
+    /// The radius of the planet in kilometers.
+    fn calculate_kothari_radius(&self) -> f64 {
+        // Determine atomic weight and atomic number based on zone and mass type
+        let (atomic_weight, atomic_num): (f64, f64) = match self.orbit_zone {
+            OrbitalZone::Zone1 => {
+                if self.mass_type == MassType::GasGiant {
+                    (9.5, 4.5)
+                } else {
+                    (15.0, 8.0)
+                }
+            }
+            OrbitalZone::Zone2 => {
+                if self.mass_type == MassType::GasGiant {
+                    (2.47, 2.0)
+                } else {
+                    (10.0, 5.0)
+                }
+            }
+            _ => {
+                if self.mass_type == MassType::GasGiant {
+                    (7.0, 4.0)
+                } else {
+                    (10.0, 5.0)
+                }
+            }
+        };
+
+        // Calculate temp
+        let temp = atomic_weight * atomic_num;
+        let temp = (2.0 * consts::BETA_20 * consts::SOLAR_MASS_IN_GRAMS.powf(1.0 / 3.0))
+            / (consts::A1_20 * temp.powf(1.0 / 3.0));
+
+        // Calculate temp2
+        let mut temp2 = consts::A2_20 * atomic_weight.powf(4.0 / 3.0) * consts::SOLAR_MASS_IN_GRAMS.powf(2.0 / 3.0);
+        temp2 *= self.mass_in_sols.powf(2.0 / 3.0);
+        temp2 /= consts::A1_20 * atomic_num.powf(2.0);
+        temp2 = 1.0 + temp2;
+
+        // Final calculation of temp
+        let temp = temp / temp2;
+        let temp = (temp * self.mass_in_sols.powf(1.0 / 3.0)) / consts::CM_PER_KM;
+
+        // Return the radius in kilometers
+        temp
+    }
+
+    /// Calculates the density of a planetary body based on its properties and the luminosity of its star.
+    ///
+    /// # Arguments
+    /// - `luminosity_in_sols`: The luminosity of the star (in solar units).
+    ///
+    /// # Returns
+    /// - `f64`: The calculated density of the planet in units of grams/cc
+    fn calculate_empirical_density(&self, luminosity_in_sols: f64) -> f64 {
+        let temp = self.mass_in_earth_masses().powf(1.0 / 8.0);
+        let temp2 = luminosity_in_sols.sqrt();
+        let temp = temp * (temp2 / self.a).powf(0.25);
+
+        if self.mass_type == MassType::GasGiant {
+            temp * 1.2
+        } else {
+            temp * 5.5
+        }
+    }
+
+    /// Calculates the density of a spherical object given its mass and radius.
+    ///
+    /// # Returns
+    /// The density of the object in grams/cc.
+    fn calculate_density_from_volume(&self) -> f64 {
+        // Convert mass to grams
+        let mass_in_grams = self.mass_in_sols * consts::SOLAR_MASS_IN_GRAMS;
+
+        // Convert equatorial radius to centimeters
+        let radius_in_cm = self.radius_in_km * consts::CM_PER_KM;
+
+        // Calculate volume of the sphere
+        let volume_in_cc = (4.0 * std::f64::consts::PI * radius_in_cm.powf(3.0)) / 3.0;
+
+        // Return the density
+        mass_in_grams / volume_in_cc
+    }
+
+    /// Initializes the planetary object's properties based on its mass type and the luminosity of its star.
+    ///
+    /// # Arguments
+    /// - `luminosity_in_sols`: The luminosity of the star in solar units.
+    ///
+    /// # Description
+    /// This function sets up key properties of a planetary object:
+    /// 1. Determines the orbit zone of the planet based on the star's luminosity.
+    /// 2. Calculates the planet's density and radius differently depending on whether the planet is a gas giant or not:
+    ///    - **Gas Giant**:
+    ///      - Uses empirical density calculations to estimate the density in grams per cubic centimeter.
+    ///      - Computes the radius in kilometers based on the calculated density.
+    ///    - **Non-Gas Giant**:
+    ///      - Determines the radius using the Kothari equation.
+    ///      - Derives the density based on the calculated volume.
+    ///
+    /// # Modifies
+    /// - `self.orbit_zone`: Sets the orbital zone classification of the planet.
+    /// - `self.density_in_grams_per_cc`: Updates the density of the planet.
+    /// - `self.radius_in_km`: Updates the radius of the planet.
+    ///
+    /// # Notes
+    /// - Ensure that the planetary object has its `mass_type` field correctly set before calling this function.
+    pub fn initialize(&mut self, luminosity_in_sols: f64) {
+        self.orbit_zone = self.calculate_orbit_zone(luminosity_in_sols);
+
+        if self.mass_type == MassType::GasGiant {
+            self.density_in_grams_per_cc = self.calculate_empirical_density(luminosity_in_sols);
+            self.radius_in_km = self.calculate_radius_from_density();
+        } else {
+            self.radius_in_km = self.calculate_kothari_radius();
+            self.density_in_grams_per_cc = self.calculate_density_from_volume();
+        }
     }
 }
