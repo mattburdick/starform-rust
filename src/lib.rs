@@ -4,7 +4,7 @@ use crate::star_system::StarSystem;
 
 mod accretion_disk;
 pub mod body;
-mod consts;
+pub mod consts;
 mod random;
 pub mod star;
 pub mod star_system;
