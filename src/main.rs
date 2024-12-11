@@ -1,6 +1,6 @@
 // src/main.rs
 
-use starform_rust::generate_star_system;
+use starform_rust::{generate_star_system, random::set_rng_seed};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -53,6 +53,7 @@ struct Opts {
 /// This will initialize a specific type of star system and set the logging level to 2.
 fn main() {
     let opts = Opts::from_args();
+    set_rng_seed(0); // Reset the global DETERMINISTIC_RNG with the new seed
     let star_system = generate_star_system(opts.loglevel, opts.star_type);
 
     println!("{}", star_system.to_string());

@@ -1,7 +1,7 @@
 // src/accretion_disk.rs
 
+use crate::random::get_random_number;
 use crate::{body::Body, consts, get_log_level, log, types::MassType};
-use rand::Rng;
 use std::sync::{Arc, RwLock};
 use std::{collections::VecDeque, fmt};
 
@@ -155,43 +155,8 @@ impl AccretionDisk {
     /// println!("Generated eccentricity: {}", eccentricity);
     /// ```
     pub fn random_eccentricity() -> f64 {
-        let random_number_between_0_and_1: f64 = rand::thread_rng().gen_range(0.0001..=1.0);
+        let random_number_between_0_and_1: f64 = get_random_number(0.0001..=1.0);
         1.0 - (1.0 - random_number_between_0_and_1).powf(consts::ECCENTRICITY_COEFF)
-    }
-
-    /// Calculates the dust density at a given orbital radius around a star.
-    ///
-    /// This function computes the dust density based on the stellar mass and the distance from the star,
-    /// using an exponential decay model. The formula incorporates predefined constants to adjust the
-    /// model based on empirical or theoretical data.
-    ///
-    /// # Parameters
-    /// - `stellar_mass`: The mass of the star in solar masses.
-    /// - `a`: Orbital radius in astronomical units (AU), the distance from the star at which the dust density is calculated.
-    ///
-    /// # Returns
-    /// Returns the dust density at the specified orbital radius as a floating-point number.
-    ///
-    /// # Formula
-    /// The dust density \( d \) at a distance \( a \) from a star of mass \( m \) is calculated as:
-    /// \[
-    /// \rho_{d} = A \cdot \sqrt{M_{\odot}} \cdot e^{-\alpha \cdot a^{1/n}}
-    /// \]
-    /// where:
-    /// - \( A \) is the dust density coefficient (`DUST_DENSITY_COEFF`),
-    /// - \( \alpha \) is a decay constant that influences how quickly the dust density decreases with distance (`ALPHA`),
-    /// - \( n \) affects the curvature of the decay curve (`N`).
-    ///
-    /// # Examples
-    /// ```
-    /// let stellar_mass = 1.0;  // mass of the star in solar masses
-    /// let orbital_radius = 5.0;  // distance from the star in AU
-    /// let dust_density = dust_density(stellar_mass, orbital_radius);
-    /// println!("Dust density at {} AU: {}", orbital_radius, dust_density);
-    /// ```
-    pub fn dust_density(stellar_mass: f64, a: f64) -> f64 {
-        // A = consts::DUST_DENSITY_COEFF
-        consts::DUST_DENSITY_COEFF * stellar_mass.sqrt() * f64::exp(-consts::ALPHA * a.powf(1.0 / consts::N))
     }
 
     // Calculates the outer limit of gas & dust accretion disks from a planet or star
@@ -693,7 +658,7 @@ impl AccretionDisk {
             if self.planet_inner_bound > self.planet_outer_bound {
                 panic!("ERROR: planet inner bound is greater than outer bound\n");
             }
-            let a: f64 = rand::thread_rng().gen_range(bound1..=bound2);
+            let a: f64 = get_random_number(bound1..=bound2);
 
             // Create a protoplanet annotated with the dust density and critical mass limit at this distance from the primary
             let mut protoplanet = Body::new(
@@ -702,8 +667,8 @@ impl AccretionDisk {
                 consts::PROTOPLANET_MASS,
                 MassType::Planet,
                 0.0, // The radius of the protoplanet is not used
-                Self::dust_density(self.central_mass_in_sols, a),
-                Body::critical_limit(a, e, self.luminosity_in_sols),
+                self.central_mass_in_sols,
+                self.luminosity_in_sols,
                 Some(Arc::new(RwLock::new(AccretionDisk::default()))),
             );
             let (eff_inner_bound, eff_outer_bound, _, _) =

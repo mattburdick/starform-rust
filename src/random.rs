@@ -1,36 +1,55 @@
-use rand::Rng;
+use rand::{rngs::StdRng, Rng, SeedableRng};
+use std::{ops::RangeInclusive, sync::Mutex};
 
-/// Generates a random number within the inclusive range defined by two input numbers.
-///
-/// This function determines the minimum and maximum values from the provided inputs and then generates
-/// a random number within the inclusive range `[min, max]`. It uses the system's default random number generator
-/// with a uniform distribution.
-///
-/// # Parameters
-/// - `num1`: One endpoint of the range. This value can be either the minimum or maximum.
-/// - `num2`: The other endpoint of the range. This value can be either the minimum or maximum.
+// A globally accessible, thread-safe random number generator (RNG).
+//
+// This RNG is initialized once using a fixed seed, ensuring deterministic random number generation across runs. The RNG
+// is wrapped in a `Mutex` to allow safe, synchronized access across threads.
+lazy_static! {
+    /// A globally shared, thread-safe `StdRng` initialized with a fixed seed.
+    static ref DETERMINISTIC_RNG: Mutex<StdRng> = Mutex::new(StdRng::seed_from_u64(rand::thread_rng().gen()));
+}
+
+/// Generate a new random seed and reset the global RNG with it.
 ///
 /// # Returns
-/// Returns a random `f64` value that lies between `num1` and `num2`, inclusive of both endpoints.
+/// - The new random seed (`u64`) that was generated.
 ///
-/// # Examples
+/// # Example
 /// ```
-/// let num1 = 10.0;
-/// let num2 = 20.0;
-/// let random_val = random_number(num1, num2);
-/// println!("Random value between {} and {}: {}", num1, num2, random_val);
-/// assert!(random_val >= 10.0 && random_val <= 20.0);
+/// let new_seed = reset_rng();
+/// println!("RNG reset with new seed: {}", new_seed);
 /// ```
-///
-/// # Note
-/// The function uses `rand::thread_rng()`, a thread-local random number generator, to produce randomness.
-/// This generator is seeded by the system and is safe for casual use but not for cryptographic purposes.
-#[allow(dead_code)]
-pub fn random_number(num1: f64, num2: f64) -> f64 {
-    let max = f64::max(num1, num2);
-    let min = f64::min(num1, num2);
+pub fn set_rng_seed(seed: u64) -> u64 {
+    // Generate a new random seed using the default thread_rng()
+    let new_seed: u64 = if seed == 0 { rand::thread_rng().gen() } else { seed };
 
-    rand::thread_rng().gen_range(min..=max)
+    // let log_level = *crate::get_log_level!();
+    // crate::log!(log_level, 1, "Seeding with {}", new_seed);
+
+    // Lock the RNG and replace it with a new StdRng seeded with the new seed
+    let mut rng = DETERMINISTIC_RNG.lock().unwrap();
+    *rng = StdRng::seed_from_u64(new_seed);
+
+    new_seed
+}
+
+/// Generates a random number of a specified numeric type in the given range `[min, max]`
+/// using the global deterministic RNG.
+///
+/// # Arguments
+/// - `range`: A range that implements `std::ops::RangeInclusive<T>`.
+///
+/// # Type Parameters
+/// - `T`: A numeric type that implements `rand::distributions::uniform::SampleUniform`.
+///
+/// # Returns
+/// - A random number of type `T` within the specified range.
+pub fn get_random_number<T>(range: RangeInclusive<T>) -> T
+where
+    T: rand::distributions::uniform::SampleUniform + PartialOrd,
+{
+    DETERMINISTIC_RNG.lock().unwrap().gen_range(range)
 }
 
 /// Calculates a value within a specific range around a given value, introducing random variation.
@@ -42,14 +61,14 @@ pub fn random_number(num1: f64, num2: f64) -> f64 {
 ///
 /// # Parameters
 /// - `value`: The base value from which the variation is calculated.
-/// - `percent_variation`: The maximum fractional variation allowed from the base value, expressed as a decimal
+/// - `percent_variation`: The maximum fractional v÷≥ariation allowed from the base value, expressed as a decimal
 ///   (e.g., 0.1 for ±10%).
 ///
 /// # Returns
 /// Returns a new `f64` that is the original `value` adjusted by a random factor within the specified `percent_variation` range.
 ///
 pub fn about(value: f64, percent_variation: f64) -> f64 {
-    let mut rng = rand::thread_rng();
+    let mut rng = DETERMINISTIC_RNG.lock().unwrap();
     let random_factor = rng.gen_range(-percent_variation..=percent_variation);
     value + (value * random_factor)
 }

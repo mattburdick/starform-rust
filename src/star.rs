@@ -1,10 +1,10 @@
 // src/star.rs
 
 use lazy_static::lazy_static;
-use rand::Rng;
 use std::sync::{Arc, RwLock};
 use std::{collections::HashMap, fmt};
 
+use crate::random::get_random_number;
 use crate::{accretion_disk::AccretionDisk, body::Body, consts, random, star::SpectralClass::*, types::MassType};
 
 lazy_static! {
@@ -165,7 +165,7 @@ impl SpectralInfo {
     // The percentage probability of each entry is used to determine the likelihood of selecting it
     fn get_random(luminosity_class: LuminosityClass) -> SpectralInfo {
         // Generate a random number to select one of the stellar characteristic structs from the appropriate category in STARINFO
-        let mut random_percent = rand::thread_rng().gen_range(0.0..=100.0);
+        let mut random_percent = get_random_number(0.0..=100.0);
 
         let mut spectral_info: SpectralInfo = SpectralInfo {
             spec_class: G,
@@ -677,14 +677,13 @@ impl Star {
     ///     very short-lived stellar phenomena.
     pub fn age(mass_in_sols: f64, luminosity_in_sols: f64) -> f64 {
         let lifetime = Star::main_seq_life(mass_in_sols, luminosity_in_sols);
-        let mut rng = rand::thread_rng();
 
         if lifetime >= 6.0e9 {
-            rng.gen_range(1.0e9..=6.0e9)
+            get_random_number(1.0e9..=6.0e9)
         } else if lifetime > 1.0e9 {
-            rng.gen_range(1.0e9..=lifetime)
+            get_random_number(1.0e9..=lifetime)
         } else {
-            rng.gen_range(1.0e6..=lifetime)
+            get_random_number(1.0e6..=lifetime)
         }
     }
 
@@ -917,7 +916,7 @@ impl Star {
         // giants or supergiants.  This function reflects those percentages.  If
         // you are interested in larger stars, you can always generate them
         //  using the '-t' flag!
-        let luminosity_class = match rand::thread_rng().gen_range(1..=100) {
+        let luminosity_class = match get_random_number(1..=100) {
             1..=90 => {
                 LuminosityClass::MainSequence // 90% main sequence
             }
@@ -926,7 +925,7 @@ impl Star {
             }
             _ => {
                 // 1% giants and supergiants
-                match rand::thread_rng().gen_range(1..=100) {
+                match get_random_number(1..=100) {
                     1..=70 => LuminosityClass::Giant,
                     _ => LuminosityClass::Supergiant,
                 }

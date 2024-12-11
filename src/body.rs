@@ -1,10 +1,11 @@
 // src/orbital_body.rs
 
+use crate::accretion_parameters::ACCRETION_PARAMETERS;
 use crate::{accretion_disk::AccretionDisk, consts, get_log_level, log, types::MassType};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock}; // Make sure to import the global reference
 
 #[derive(Debug, Clone)]
-enum OrbitalZone {
+pub enum OrbitalZone {
     Zone1,
     Zone2,
     Zone3,
@@ -50,55 +51,38 @@ impl Body {
     /// # Parameters:
     /// - `a`: The semi-major axis of the orbit in astronomical units (AU).
     /// - `e`: The eccentricity of the orbit.
-    /// - `mass`: The mass of the body in solar masses.
+    /// - `mass_in_sols`: The mass of the body in solar masses.
     /// - `mass_type`: The type of the celestial body (e.g., Star, Planet, GasGiant).
     /// - `radius_in_km`: The radius of the body in km.
-    /// - `local_dust_density`: The local density of dust around the body.
-    /// - `critical_mass_limit`: The critical mass limit at which the body can begin to accrete gas.
+    /// - `central_mass_in_sols`: The mass of the central object (Star, Planet, GasGiant) in solar masses.
+    /// - `stellar_luminosity_in_sols`: The luminosity of the central star in solar luminosities.
     /// - `accretion_disk`: An optional reference-counted, mutable reference to an `AccretionDisk`
     ///   representing the disk in which the body is located.
     ///
     /// # Returns:
     /// A new instance of `Body` fully initialized with the provided values.
-    ///
-    /// # Examples:
-    /// Creating a new planet with specific properties:
-    /// ```rust
-    /// let planet = Body::new(
-    ///     1.0, // AU
-    ///     0.01, // Eccentricity
-    ///     0.000003, // Mass in solar masses
-    ///     MassType::Planet, // Body type
-    ///     0.0005, // Radius in AU
-    ///     0.02, // Local dust density
-    ///     0.1, // Critical mass limit for gas accretion
-    ///     None, // Optional accretion disk
-    /// );
-    /// ```
-    ///
-    /// This example sets up a planetary body with a specified orbit, mass, and environmental conditions.
     pub fn new(
         a: f64,
         e: f64,
-        mass: f64,
+        mass_in_sols: f64,
         mass_type: MassType,
         radius_in_km: f64,
-        local_dust_density: f64,
-        critical_mass_limit: f64,
+        central_mass_in_sols: f64,
+        stellar_luminosity_in_sols: f64,
         accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
     ) -> Self {
-        Body {
-            a,
-            e,
-            mass_in_sols: mass,
-            mass_type,
-            radius_in_km: radius_in_km,
-            local_dust_density,
-            critical_mass_limit,
-            orbit_zone: OrbitalZone::Zone1,
-            density_in_grams_per_cc: 0.0,
-            accretion_disk,
-        }
+        let mut body = Body::default();
+        body.a = a;
+        body.e = e;
+        body.mass_in_sols = mass_in_sols;
+        body.mass_type = mass_type;
+        body.radius_in_km = radius_in_km;
+        body.local_dust_density = body.dust_density(central_mass_in_sols);
+        body.critical_mass_limit = body.critical_limit(stellar_luminosity_in_sols);
+        body.orbit_zone = body.calculate_orbit_zone(stellar_luminosity_in_sols);
+        body.accretion_disk = accretion_disk;
+
+        body
     }
 
     pub fn collects_gas(&self, mass: f64) -> bool {
@@ -113,7 +97,7 @@ impl Body {
     /// dependent on the mass relative to the critical mass limit.
     ///
     /// # Parameters
-    /// - `mass`: The mass in solar masses of the celestial body at the location of interest.
+    /// - `central_mass_in_sols`: The mass in solar masses of the central body.
     ///
     /// # Returns
     /// Returns the modified local density as a floating-point number, which includes contributions from both dust
@@ -138,8 +122,12 @@ impl Body {
     /// let density = system.local_density(0.3);
     /// println!("Local density for mass 0.3 solar masses: {}", density);
     /// ```
-    pub fn local_density(&self, mass: f64) -> f64 {
-        consts::K * self.local_dust_density / (1.0 + (self.critical_mass_limit / mass).sqrt() * (consts::K - 1.0))
+    pub fn local_density(&self, central_mass_in_sols: f64) -> f64 {
+        // Lock the global ACCRETION_PARAMETERS and read K
+        let params = ACCRETION_PARAMETERS.lock().unwrap();
+
+        params.ratio_of_gas_to_dust * self.local_dust_density
+            / (1.0 + (self.critical_mass_limit / central_mass_in_sols).sqrt() * (params.ratio_of_gas_to_dust - 1.0))
     }
 
     pub fn is_trivial_mass(&self) -> bool {
@@ -190,16 +178,43 @@ impl Body {
     /// of the star's luminosity on the accretion process.
     ///
     /// # Parameters
-    /// - `a`: Semi-major axis of the orbit in astronomical units (AU).
-    /// - `e`: Eccentricity of the orbit, a unitless measure.
-    /// - `luminosity`: Luminosity of the central star in solar luminosities.
+    /// - `stellar_luminosity_in_sols`: Luminosity of the central star in solar luminosities.
     ///
     /// # Returns
     /// The critical limit in solar masses, indicating the threshold above which significant gas accretion can occur.
     ///
-    pub fn critical_limit(a: f64, e: f64, luminosity: f64) -> f64 {
-        let perihelion = a - a * e;
-        consts::B * (perihelion * luminosity.sqrt()).powf(-0.75)
+    pub fn critical_limit(&self, stellar_luminosity_in_sols: f64) -> f64 {
+        let perihelion = self.a - self.a * self.e;
+        consts::B * (perihelion * stellar_luminosity_in_sols.sqrt()).powf(-0.75)
+    }
+
+    /// Calculates the dust density at a given orbital radius around a star.
+    ///
+    /// This function computes the dust density based on the stellar mass and the distance from the star,
+    /// using an exponential decay model. The formula incorporates predefined constants to adjust the
+    /// model based on empirical or theoretical data.
+    ///
+    /// # Parameters
+    /// - `stellar_mass`: The mass of the star in solar masses.
+    ///
+    /// # Returns
+    /// Returns the dust density at the specified orbital radius as a floating-point number.
+    ///
+    /// # Formula
+    /// The dust density \( d \) at a distance \( a \) from a star of mass \( m \) is calculated as:
+    /// \[
+    /// \rho_{d} = A \cdot \sqrt{M_{\odot}} \cdot e^{-\alpha \cdot a^{1/n}}
+    /// \]
+    /// where:
+    /// - \( A \) is the dust density coefficient (`DUST_DENSITY_COEFF`),
+    /// - \( \alpha \) is a decay constant that influences how quickly the dust density decreases with distance (`ALPHA`),
+    /// - \( n \) affects the curvature of the decay curve (`N`).
+    pub fn dust_density(&self, stellar_mass: f64) -> f64 {
+        // Lock the global ACCRETION_PARAMETERS mutex and retrieve the parameters
+        let params = ACCRETION_PARAMETERS.lock().unwrap();
+
+        // Use the globally stored parameters
+        params.dust_density_coefficient * stellar_mass.sqrt() * f64::exp(-consts::ALPHA * self.a.powf(1.0 / consts::N))
     }
 
     /// Calculates the Roche limit of a primary body for a fluid satellite.
@@ -281,7 +296,7 @@ impl Body {
     ///
     /// # Parameters
     ///
-    /// - `luminosity_in_sols`: The luminosity of the star relative to the Sun (dimensionless, where the Sun's luminosity is 1.0).
+    /// - `stellar_luminosity_in_sols`: The luminosity of the star relative to the Sun (dimensionless, where the Sun's luminosity is 1.0).
     ///
     /// # Returns
     ///
@@ -289,10 +304,10 @@ impl Body {
     /// - `OrbitalZone::Zone1`
     /// - `OrbitalZone::Zone2`
     /// - `OrbitalZone::Zone3`
-    fn calculate_orbit_zone(&self, luminosity_in_sols: f64) -> OrbitalZone {
-        if self.a < 4.0 * luminosity_in_sols.sqrt() {
+    fn calculate_orbit_zone(&self, stellar_luminosity_in_sols: f64) -> OrbitalZone {
+        if self.a < 4.0 * stellar_luminosity_in_sols.sqrt() {
             OrbitalZone::Zone1
-        } else if self.a < 15.0 * luminosity_in_sols.sqrt() {
+        } else if self.a < 15.0 * stellar_luminosity_in_sols.sqrt() {
             OrbitalZone::Zone2
         } else {
             OrbitalZone::Zone3

@@ -25,9 +25,13 @@ pub const SOLAR_RADII_PER_AU: f64 = 4.652E-3; // Number of solar radii per AU
 pub const SOLAR_TEMPERATURE_IN_KELVIN: f64 = 5777.0; // Effective temperature of the sun in Kelvin
 
 pub const GREENHOUSE_EFFECT_CONST: f64 = 0.93; // affects inner radius..
+
+/// "Parameter K" in Dole's paper. The ratio of gas to dust, typically in the range 50 to 100 (e.g. 1% to 2% of the cloud mass is dust)
 pub const K: f64 = 50.0; // K = gas/dust ratio
 pub const B: f64 = 1.2E-5; // Used in Crit_mass calc
-pub const DUST_DENSITY_COEFF: f64 = 7.1E-8; // A in Dole's paper
+
+/// "Parameter A" in Dole's paper
+pub const DUST_DENSITY_COEFF: f64 = 7.1E-8;
 pub const ALPHA: f64 = 5.0; // Used in density calcs
 pub const N: f64 = 3.0; // Used in density calcs
 pub const TRIVIAL_MASS: f64 = 1.0E-14; // Units of solar masses

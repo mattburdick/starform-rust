@@ -3,9 +3,10 @@
 use crate::star_system::StarSystem;
 
 mod accretion_disk;
+pub mod accretion_parameters;
 pub mod body;
 pub mod consts;
-mod random;
+pub mod random;
 pub mod star;
 pub mod star_system;
 pub mod types;

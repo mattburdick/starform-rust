@@ -1,7 +1,6 @@
-use rand::Rng;
 use std::fmt;
 
-use crate::{get_log_level, log, star::Star};
+use crate::{get_log_level, log, random::get_random_number, star::Star};
 
 #[derive(Debug, Clone)]
 pub struct StarSystem {
@@ -41,6 +40,7 @@ impl StarSystem {
     /// # Parameters
     /// - `star_type`: A string slice that optionally specifies the type of star to create. If empty,
     ///   the function generates a random star system. This string typically matches command-line input.
+    /// - `rng_seed`: Reset DETERMINISTIC_RNG with the given seed. If zero, generate a new seed.
     ///
     /// # Panics
     /// - The function panics if it fails to parse the provided `star_type` into a valid star configuration.
@@ -65,7 +65,7 @@ impl StarSystem {
         // If "-t" was used to specify the star type (e.g. G3M/1), generate the requested star. Otherwise randomly generate the system
         if star_type.is_empty() {
             // Create a star system with 1 to 4 stars
-            let star_count = match rand::thread_rng().gen_range(1..=100) {
+            let star_count = match get_random_number(1..=100) {
                 1..=45 => 1,
                 46..=80 => 2,
                 81..=95 => 3,
@@ -76,7 +76,7 @@ impl StarSystem {
                 let orbital_radius_in_au = if index == 0 {
                     0.0
                 } else {
-                    rand::thread_rng().gen_range(1.0..=150.0) // 1 - 150 AU
+                    get_random_number(1.0..=150.0) // 1 - 150 AU
                 };
 
                 let star = Star::random(orbital_radius_in_au);
