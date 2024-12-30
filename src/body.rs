@@ -126,8 +126,10 @@ impl Body {
         // Lock the global ACCRETION_PARAMETERS and read K
         let params = ACCRETION_PARAMETERS.lock().unwrap();
 
-        params.ratio_of_gas_to_dust * self.local_dust_density
-            / (1.0 + (self.critical_mass_limit / central_mass_in_sols).sqrt() * (params.ratio_of_gas_to_dust - 1.0))
+        let mut ratio_of_gas_to_dust = (1.0 / params.percent_dust_in_cloud) * 100.0;
+        ratio_of_gas_to_dust = ratio_of_gas_to_dust.min(1000.0);
+        ratio_of_gas_to_dust * self.local_dust_density
+            / (1.0 + (self.critical_mass_limit / central_mass_in_sols).sqrt() * (ratio_of_gas_to_dust - 1.0))
     }
 
     pub fn is_trivial_mass(&self) -> bool {

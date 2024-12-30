@@ -1,6 +1,6 @@
 // src/main.rs
 
-use starform_rust::{generate_star_system, random::set_rng_seed};
+use starform_rust::{accretion_parameters::set_accretion_parameters, generate_star_system, random::set_rng_seed};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -26,6 +26,15 @@ struct Opts {
         default_value = ""
     )]
     star_type: String,
+
+    /// Specifies the percent of the cloud that is dust
+    #[structopt(
+        short = "d",
+        long = "dust",
+        help = "Specify the percent of the cloud that is dust (e.g. 2 means 2%)",
+        default_value = "0"
+    )]
+    dust_percent: f64,
 }
 
 /// Entry point for the star system simulation program.
@@ -54,6 +63,7 @@ struct Opts {
 fn main() {
     let opts = Opts::from_args();
     set_rng_seed(0); // Reset the global DETERMINISTIC_RNG with the new seed
+    set_accretion_parameters(0.0, opts.dust_percent); // Update the global ACCRETION_PARAMETERS with the dust percent
     let star_system = generate_star_system(opts.loglevel, opts.star_type);
 
     println!("{}", star_system.to_string());

@@ -22,7 +22,10 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-v", "3"],
+            "args": [
+                "-v",
+                "3"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -43,7 +46,40 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-v", "3", "-t", "G3M/1"],
+            "args": [
+                "-v",
+                "3",
+                "-t",
+                "G3M/1"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'starform -v 3 -t G3M/1 -d 2'",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=starform-rust",
+                    "--package=starform-rust"
+                ],
+                "filter": {
+                    "name": "starform-rust",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "-v",
+                "3",
+                "-t",
+                "G3M/1",
+                "-d",
+                "2"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -64,7 +100,12 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-v", "1", "-t", "G3M/1"],
+            "args": [
+                "-v",
+                "1",
+                "-t",
+                "G3M/1"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -85,7 +126,11 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-v", "1", "-t"],
+            "args": [
+                "-v",
+                "1",
+                "-t"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
