@@ -211,11 +211,11 @@ impl SpectralInfo {
             }
         }
 
-        return if mass == 0.0 {
+        if mass == 0.0 {
             Err("No mass found for spectral class")
         } else {
             Ok(mass)
-        };
+        }
     }
 }
 
@@ -386,34 +386,30 @@ impl Default for Star {
 
 impl fmt::Display for Star {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Stellar Classification:        {}\n", self.stellar_classification())?;
-        write!(f, "Stellar mass:                {:>7.3} sols\n", self.mass_in_sols)?;
-        write!(
+        writeln!(f, "Stellar Classification:        {}", self.stellar_classification())?;
+        writeln!(f, "Stellar mass:                {:>7.3} sols", self.mass_in_sols)?;
+        writeln!(
             f,
-            "Stellar radius:              {:>7.3} sols ({:>0.4} AU)\n",
+            "Stellar radius:              {:>7.3} sols ({:>0.4} AU)",
             self.radius_in_au,
             self.radius_in_au * consts::SOLAR_RADII_PER_AU
         )?;
-        write!(
+        writeln!(f, "Stellar luminosity:          {:>7.3} sols", self.luminosity_in_sols)?;
+        writeln!(
             f,
-            "Stellar luminosity:          {:>7.3} sols \n",
-            self.luminosity_in_sols
-        )?;
-        write!(
-            f,
-            "Age:                         {:>7.3} billion years\n",
+            "Age:                         {:>7.3} billion years",
             self.age / 1.0e9
         )?;
 
         if self.luminosity_class == LuminosityClass::MainSequence {
-            write!(
+            writeln!(
                 f,
-                "Years left on Main Sequence: {:>7.3} billion years\n",
+                "Years left on Main Sequence: {:>7.3} billion years",
                 (self.main_seq_life - self.age) / 1.0e9
             )?;
         }
 
-        write!(f, "Earthlike insolation at:     {:>7.3} AU\n", self.r_ecosphere)
+        writeln!(f, "Earthlike insolation at:     {:>7.3} AU", self.r_ecosphere)
     }
 }
 
@@ -992,10 +988,12 @@ impl Star {
     /// vary significantly based on their spectral type and position within their respective systems.
     pub fn new(spectral_class: SpectralClass, luminosity_class: LuminosityClass, spectral_number: i32, a: f64) -> Self {
         // Create a default star, fill out the base properties and tell it to calculate dependent properties like mass, luminosity, etc.
-        let mut star = Star::default();
-        star.spectral_class = spectral_class;
-        star.luminosity_class = luminosity_class;
-        star.spectral_number = spectral_number;
+        let mut star = Star {
+            spectral_class,
+            luminosity_class,
+            spectral_number,
+            ..Star::default()
+        };
         star.calculate_properties();
 
         // If it's the primary, its orbital radius is zero

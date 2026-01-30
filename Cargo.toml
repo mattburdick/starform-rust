@@ -19,3 +19,5 @@ path = "src/lib.rs"
 name = "starform-rust"
 path = "src/main.rs"
 
+[workspace]
+

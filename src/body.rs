@@ -61,6 +61,7 @@ impl Body {
     ///
     /// # Returns:
     /// A new instance of `Body` fully initialized with the provided values.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         a: f64,
         e: f64,
@@ -71,12 +72,14 @@ impl Body {
         stellar_luminosity_in_sols: f64,
         accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
     ) -> Self {
-        let mut body = Body::default();
-        body.a = a;
-        body.e = e;
-        body.mass_in_sols = mass_in_sols;
-        body.mass_type = mass_type;
-        body.radius_in_km = radius_in_km;
+        let mut body = Body {
+            a,
+            e,
+            mass_in_sols,
+            mass_type,
+            radius_in_km,
+            ..Body::default()
+        };
         body.local_dust_density = body.dust_density(central_mass_in_sols);
         body.critical_mass_limit = body.critical_limit(stellar_luminosity_in_sols);
         body.orbit_zone = body.calculate_orbit_zone(stellar_luminosity_in_sols);
@@ -232,8 +235,12 @@ impl Body {
     /// Where:
     /// - R is the radius of the primary body.
     /// - ρ_M and ρ_m are the densities of the primary body and the satellite, respectively.
+    ///
     /// Given that ρ_M ≈ ρ_m for our purposes, the formula simplifies to approximately:
+    ///
+    /// ```text
     /// d = 2.44 * R
+    /// ```
     ///
     /// # Parameters:
     /// - `primary_radius_in_au`: The radius of the primary body in the same units as the desired Roche limit.
@@ -262,7 +269,7 @@ impl Body {
             + other.mass_in_sols * other.a.sqrt() * (1.0 - other.e.powf(2.0)).sqrt();
         let new_angular_momentum = angular_momentum / ((self.mass_in_sols + other.mass_in_sols) * new_a.sqrt());
         let new_e_squared = 1.0 - new_angular_momentum.powf(2.0);
-        let new_e = if new_e_squared < 0.0 || new_e_squared >= 1.0 {
+        let new_e = if !(0.0..1.0).contains(&new_e_squared) {
             0.0
         } else {
             new_e_squared.sqrt()
@@ -339,10 +346,7 @@ impl Body {
         let radius_cm = ((3.0 * volume_cm3) / (4.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
 
         // Convert radius from centimeters to kilometers
-        let radius_km = radius_cm / consts::CM_PER_KM;
-
-        // Return the radius in kilometers
-        radius_km
+        radius_cm / consts::CM_PER_KM
     }
 
     /// Calculates the radius of a planet in kilometers using Kothari's formula.
@@ -389,14 +393,10 @@ impl Body {
         let mut temp2 = consts::A2_20 * atomic_weight.powf(4.0 / 3.0) * consts::SOLAR_MASS_IN_GRAMS.powf(2.0 / 3.0);
         temp2 *= self.mass_in_sols.powf(2.0 / 3.0);
         temp2 /= consts::A1_20 * atomic_num.powf(2.0);
-        temp2 = 1.0 + temp2;
+        temp2 += 1.0;
 
         // Final calculation of temp
-        let temp = temp / temp2;
-        let temp = (temp * self.mass_in_sols.powf(1.0 / 3.0)) / consts::CM_PER_KM;
-
-        // Return the radius in kilometers
-        temp
+        (temp / temp2 * self.mass_in_sols.powf(1.0 / 3.0)) / consts::CM_PER_KM
     }
 
     /// Calculates the density of a planetary body based on its properties and the luminosity of its star.

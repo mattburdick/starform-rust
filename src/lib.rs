@@ -20,7 +20,7 @@ lazy_static! {
 }
 
 pub fn loglevel_mutex() -> &'static Mutex<u8> {
-    &*LOGLEVEL
+    &LOGLEVEL
 }
 
 /// Retrieves the current global log level with error handling.

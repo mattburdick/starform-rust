@@ -6,11 +6,11 @@ use structopt::StructOpt;
 #[derive(Debug, StructOpt)]
 #[structopt(name = "starform", about = "Generates a stellar system")]
 struct Opts {
-    /// Indicates graphic output is desired
+    // Indicates graphic output is desired
     // #[structopt(short = "g", help = "Display graphically (unimplemented)")]
     // flag_graphic: bool,
 
-    /// Indicates moons should be generated for all planets
+    // Indicates moons should be generated for all planets
     // #[structopt(short = "m", help = "Generate moons for each planet")]
     // flag_moons: bool,
 
@@ -66,5 +66,5 @@ fn main() {
     set_accretion_parameters(0.0, opts.dust_percent); // Update the global ACCRETION_PARAMETERS with the dust percent
     let star_system = generate_star_system(opts.loglevel, opts.star_type);
 
-    println!("{}", star_system.to_string());
+    println!("{star_system}");
 }

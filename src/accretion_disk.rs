@@ -104,7 +104,7 @@ impl fmt::Display for AccretionDisk {
                 )?;
             }
         }
-        write!(f, "\n")?;
+        writeln!(f)?;
 
         for body in &self.bodies {
             let distance = body.a.round() as usize;
@@ -115,15 +115,15 @@ impl fmt::Display for AccretionDisk {
                 MassType::Star => "*",
             };
             if distance > 0 {
-                write!(f, "{}{body_char}\n", " ".repeat(distance))?;
+                writeln!(f, "{}{body_char}", " ".repeat(distance))?;
             }
         }
-        write!(f, "\n")?;
+        writeln!(f)?;
 
         for band in &self.bands {
             write!(f, "{}", band)?;
         }
-        write!(f, "\n")?;
+        writeln!(f)?;
 
         Ok(())
     }
@@ -169,10 +169,10 @@ impl AccretionDisk {
         }
 
         // Otherwise the central mass is a planet
-        outer_limit = outer_limit / 125.0;
+        outer_limit /= 125.0;
         let primary_effect = dist_from_primary.powf(2.0);
         if primary_effect <= 1.0 {
-            outer_limit = outer_limit * primary_effect;
+            outer_limit *= primary_effect;
         }
         outer_limit
     }
@@ -187,7 +187,7 @@ impl AccretionDisk {
             }
         }
 
-        return false;
+        false
     }
 
     /// Calculates the volume of a cylindrical shell (annular cylinder) given its dimensions.
@@ -239,7 +239,7 @@ impl AccretionDisk {
     ///
     /// # Returns:
     /// - `(bool, usize)`: A tuple where the first element is a boolean indicating if a collision was found,
-    ///    and the second element is the index of the closest body that will collide with the new body, if any.
+    ///   and the second element is the index of the closest body that will collide with the new body, if any.
     ///
     /// # Process:
     /// - Iterates over all bodies in the accretion disk.
@@ -706,7 +706,7 @@ impl AccretionDisk {
             let (found_collision, closest_neighbor) = self.find_collision(protoplanet.a, protoplanet.e);
             if found_collision {
                 // We must temporarily take ownership of the body to avoid borrowing issues.
-                let mut body = std::mem::replace(&mut self.bodies[closest_neighbor], Body::default());
+                let mut body = std::mem::take(&mut self.bodies[closest_neighbor]);
                 body.collide(&protoplanet);
 
                 // Since it has grown in size, we need to check for more matter to accrete

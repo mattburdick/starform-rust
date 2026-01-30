@@ -1,10 +1,8 @@
-/// src/const.rs
-/// This module contains all the nasty constants used in starform.
-/// For fun, try tweaking ECCENTRICITY_COEFF (determining the
-/// eccentricity of your planet's orbits about the star) and
-/// DUST_DENSITY_COEFF (determining the density of the initial dust
-/// cloud about the protostar) to see systems with different mass
-/// distribution characteristics.
+//! This module contains all the nasty constants used in starform.
+//!
+//! For fun, try tweaking `ECCENTRICITY_COEFF` (determining the eccentricity of your planet's
+//! orbits about the star) and `DUST_DENSITY_COEFF` (determining the density of the initial dust
+//! cloud about the protostar) to see systems with different mass distribution characteristics.
 
 // Author: Matt Burdick
 // Copyright (c) 2024 Matt Burdick

@@ -10,20 +10,22 @@ pub struct StarSystem {
 // Implement the Display trait for StarSystem
 impl fmt::Display for StarSystem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "                         SYSTEM  CHARACTERISTICS\n\n")?;
+        writeln!(f, "                         SYSTEM  CHARACTERISTICS")?;
+        writeln!(f)?;
         for (index, star) in self.stars.iter().enumerate() {
             if index == 0 {
-                write!(f, "        PRIMARY STAR\n")?;
+                writeln!(f, "        PRIMARY STAR")?;
                 write!(f, "{}", star)?;
                 if self.stars.len() > 1 {
-                    write!(f, "\nCompanion stars present at:\n")?;
+                    writeln!(f)?;
+                    writeln!(f, "Companion stars present at:")?;
                 }
             } else {
-                write!(f, "{:2} {} {:7.3} AU\n", index, star.stellar_classification(), star.a)?;
+                writeln!(f, "{:2} {} {:7.3} AU", index, star.stellar_classification(), star.a)?;
             }
         }
 
-        write!(f, "")
+        Ok(())
     }
 }
 
@@ -94,12 +96,10 @@ impl StarSystem {
         } else {
             // Create a star system with one star based on the description in the "-t" flag
             let orbital_radius_in_au = 0.0;
-            let star;
-
-            match Star::from_str(star_type, orbital_radius_in_au) {
-                Ok(value) => star = value,
+            let star = match Star::from_str(star_type, orbital_radius_in_au) {
+                Ok(value) => value,
                 Err(err) => panic!("Error: {}", err),
-            }
+            };
 
             log!(
                 log_level,
