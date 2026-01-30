@@ -439,8 +439,10 @@ impl Star {
     ///   Subgiant, Supergiant, Bright Giant, White Dwarf).
     ///
     /// # Example
-    /// ```
-    /// let mut star = Star::new();
+    /// ```rust
+    /// use starform_rust::star::{LuminosityClass, SpectralClass, Star};
+    ///
+    /// let mut star = Star::new(SpectralClass::G, LuminosityClass::MainSequence, 3, 0.0);
     /// star.set_classifications(SpectralClass::G, 2, LuminosityClass::MainSequence);
     /// ```
     /// After calling this method, the star's `calculate_properties` method is called to update its temperature,
@@ -476,7 +478,9 @@ impl Star {
     /// * `luminosity_in_sols` - The star's luminosity expressed as a multiple of the solar luminosity.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::{LuminosityClass, Star};
+    ///
     /// let luminosity = Star::luminosity_in_sols(1.0, LuminosityClass::MainSequence);
     /// println!("Luminosity of a main-sequence star with solar mass: {}", luminosity);
     /// ```
@@ -543,7 +547,9 @@ impl Star {
     /// * `radius_in_au` - The computed radius of the star in astronomical units, using the solar radius as a conversion factor.
     ///
     /// # Example
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::{LuminosityClass, SpectralClass, Star};
+    ///
     /// let radius = Star::radius_in_au(1.0, LuminosityClass::MainSequence, SpectralClass::G);
     /// println!("Radius of a main-sequence G-type star with solar mass: {}", radius);
     /// ```
@@ -599,10 +605,12 @@ impl Star {
     /// `consts::SOLAR_TEMPERATURE_IN_KELVIN` constant.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
     /// let luminosity = 1.0; // luminosity of the sun
-    /// let radius = 1.0; // radius of the sun in AU
-    /// let temp = temperature_in_kelvin(luminosity, radius);
+    /// let radius_in_au = 1.0;
+    /// let temp = Star::temperature_in_kelvin(luminosity, radius_in_au);
     /// println!("The temperature of the sun is approximately {} K", temp);
     /// ```
     ///
@@ -631,7 +639,9 @@ impl Star {
     ///   to ensure the lifetime never falls below a realistic threshold, reflecting observational constraints.
     ///
     /// # Example
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
     /// let life_span = Star::main_seq_life(1.0, 1.0);
     /// println!("Main sequence lifetime of a star with solar mass and luminosity: {}", life_span);
     /// ```
@@ -663,7 +673,9 @@ impl Star {
     ///   based on the star's expected main sequence lifetime.
     ///
     /// # Example
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
     /// let star_age = Star::age(1.0, 1.0);
     /// println!("Randomly determined age of a star with solar mass and luminosity: {}", star_age);
     /// ```
@@ -700,7 +712,9 @@ impl Star {
     ///   the eccentricity is set to zero, representing a circular or undefined orbit.
     ///
     /// # Example
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
     /// let eccentricity = Star::random_eccentricity(0.5); // For a celestial body at 0.5 AU from the center
     /// println!("Random eccentricity for orbital radius 0.5 AU: {}", eccentricity);
     /// ```
@@ -731,7 +745,9 @@ impl Star {
     ///   from the Earth to the Sun.
     ///
     /// # Example
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
     /// let habitable_zone_radius = Star::r_ecosphere(1.0); // For a star with the luminosity of the sun
     /// println!("Radius of the habitable zone for solar luminosity: {}", habitable_zone_radius);
     /// ```
@@ -757,7 +773,9 @@ impl Star {
     ///   a planet to support liquid water beyond the traditional habitable zone due to atmospheric warming.
     ///
     /// # Example
-    /// ```
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
     /// let r_ecosphere = 1.0; // Ecosphere radius in AU
     /// let r_greenhouse = Star::r_greenhouse(r_ecosphere); // Calculate the greenhouse radius
     /// println!("Greenhouse radius for an ecosphere of 1 AU: {}", r_greenhouse);
@@ -805,9 +823,10 @@ impl Star {
     /// any property can throw exceptions, particularly if spectral information cannot be resolved.
     ///
     /// # Example
-    /// ```
-    /// let mut star = Star::new(SpectralClass::G, LuminosityClass::V, 5);
-    /// star.calculate_properties();
+    /// ```rust
+    /// use starform_rust::star::{LuminosityClass, SpectralClass, Star};
+    ///
+    /// let star = Star::new(SpectralClass::G, LuminosityClass::MainSequence, 5, 0.0);
     /// println!("Temperature of the star: {} K", star.temperature_in_kelvin);
     /// ```
     ///
@@ -851,8 +870,10 @@ impl Star {
     /// - Errors occur if the spectral class or number cannot be parsed correctly.
     ///
     /// # Examples
-    /// ```
-    /// let star = Star::from_str("G2V/1.5", 1.5);
+    /// ```rust
+    /// use starform_rust::star::Star;
+    ///
+    /// let star = Star::from_str("G2M/1.5", 1.5);
     /// assert!(star.is_ok());
     /// ```
     ///
@@ -962,6 +983,8 @@ impl Star {
     ///
     /// # Example
     /// ```rust
+    /// use starform_rust::star::{LuminosityClass, SpectralClass, Star};
+    ///
     /// let new_star = Star::new(SpectralClass::G, LuminosityClass::MainSequence, 5, 0.0);
     /// ```
     ///

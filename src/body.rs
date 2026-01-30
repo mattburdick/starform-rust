@@ -114,13 +114,17 @@ impl Body {
     /// - `m_{c}` is the critical mass at which significant amounts of gas begin to accumulate.
     ///
     /// # Examples
-    /// ```
-    /// let system = StarSystem {
+    /// ```rust
+    /// use starform_rust::body::Body;
+    ///
+    /// let body = Body {
     ///     local_dust_density: 0.1,
     ///     critical_mass_limit: 0.5,
+    ///     ..Body::default()
     /// };
-    /// let density = system.local_density(0.3);
-    /// println!("Local density for mass 0.3 solar masses: {}", density);
+    ///
+    /// let density = body.local_density(0.3);
+    /// println!("Local density: {}", density);
     /// ```
     pub fn local_density(&self, central_mass_in_sols: f64) -> f64 {
         // Lock the global ACCRETION_PARAMETERS and read K

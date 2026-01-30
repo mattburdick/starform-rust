@@ -150,8 +150,10 @@ impl AccretionDisk {
     /// A `f64` representing the eccentricity, adjusted to be typically closer to 1.
     ///
     /// # Examples
-    /// ```
-    /// let eccentricity = random_eccentricity();
+    /// ```rust
+    /// use starform_rust::accretion_disk::AccretionDisk;
+    ///
+    /// let eccentricity = AccretionDisk::random_eccentricity();
     /// println!("Generated eccentricity: {}", eccentricity);
     /// ```
     pub fn random_eccentricity() -> f64 {
@@ -208,8 +210,10 @@ impl AccretionDisk {
     /// \]
     ///
     /// # Examples
-    /// ```
-    /// let volume = volume(2.0, 3.0, 1.0, 1.0);
+    /// ```rust
+    /// use starform_rust::accretion_disk::AccretionDisk;
+    ///
+    /// let volume = AccretionDisk::volume(2.0, 3.0, 1.0, 1.0);
     /// println!("Volume of the cylindrical shell: {}", volume);
     /// ```
     ///
@@ -247,7 +251,7 @@ impl AccretionDisk {
     /// - Keeps track of the closest body that the new body might collide with.
     ///
     /// # Example:
-    /// ```rust
+    /// ```rust,ignore
     /// let mut accretion_disk = AccretionDisk::new(...);
     /// let new_body_a = 5.0; // Semi-major axis in AU
     /// let new_body_e = 0.1; // Eccentricity
@@ -341,7 +345,7 @@ impl AccretionDisk {
     /// Returns the updated `Body` struct after accretion.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// let mut body = Body {
     ///     mass_in_sols: 0.05,
     ///     critical_mass_limit: 0.08,
@@ -424,7 +428,7 @@ impl AccretionDisk {
     /// * Updates the `dust_left` flag of the `AccretionDisk` based on remaining dust in any band.
     ///
     /// # Example
-    /// ```
+    /// ```rust,ignore
     /// let mut accretion_disk = AccretionDisk::new(...);
     /// let mut protoplanet = Body {
     ///     mass_in_sols: 0.05,
@@ -542,7 +546,7 @@ impl AccretionDisk {
     ///   based on the type of star.
     ///
     /// # Example Usage:
-    /// ```rust
+    /// ```rust,ignore
     /// let primary_star = Body {
     ///     mass_in_sols: 1.0,
     ///     a: 0.0,
@@ -617,7 +621,7 @@ impl AccretionDisk {
     /// Returns a mutable reference to the `AccretionDisk` to allow for chaining and further modifications.
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let mut accretion_disk = AccretionDisk::new(...);
     /// accretion_disk.accrete();
     /// println!("Accretion process completed: {}", accretion_disk);

@@ -35,7 +35,9 @@ lazy_static! {
 /// # Example
 /// Here's how you might use this macro in a function to adjust log verbosity based on the retrieved log level:
 ///
-/// ```
+/// ```rust
+/// use starform_rust::get_log_level;
+///
 /// if *get_log_level!() > 2 {
 ///     println!("Verbose logging enabled.");
 /// } else {
@@ -72,7 +74,9 @@ macro_rules! get_log_level {
 /// the global log level state.
 ///
 /// # Example
-/// ```
+/// ```rust
+/// use starform_rust::set_log_level;
+///
 /// // Set the global log level to 3
 /// set_log_level!(3);
 /// ```
@@ -104,7 +108,15 @@ macro_rules! set_log_level {
 /// - `args`: Comma-separated list of arguments to pass to the format string (if any).
 ///
 /// # Example
-/// ```
+/// ```rust
+/// use starform_rust::log;
+///
+/// let current_log_level = 3u8;
+/// let collects_gas = false;
+/// let new_mass = 1.23;
+/// let mass_density = 5.67;
+/// let dust_density = 1.23;
+///
 /// log!(current_log_level, 3,
 ///     "Protoplanet mass={:.2} {}, mass_density: {:.2}, non-giant density={:.2}",
 ///     new_mass, if collects_gas { "(gas giant)" } else { "" }, mass_density, dust_density);

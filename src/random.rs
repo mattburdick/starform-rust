@@ -16,9 +16,11 @@ lazy_static! {
 /// - The new random seed (`u64`) that was generated.
 ///
 /// # Example
-/// ```
-/// let new_seed = reset_rng();
-/// println!("RNG reset with new seed: {}", new_seed);
+/// ```rust
+/// use starform_rust::random::set_rng_seed;
+///
+/// let new_seed = set_rng_seed(0);
+/// println!("RNG seeded with: {}", new_seed);
 /// ```
 pub fn set_rng_seed(seed: u64) -> u64 {
     // Generate a new random seed using the default thread_rng()

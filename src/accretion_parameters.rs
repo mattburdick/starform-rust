@@ -10,8 +10,10 @@ lazy_static! {
     ///
     /// Access the fields by locking the mutex:
     /// ```rust
+    /// use starform_rust::accretion_parameters::ACCRETION_PARAMETERS;
+    ///
     /// let params = ACCRETION_PARAMETERS.lock().unwrap();
-    /// println!("Dust Density Coeff: {}", params.dust_density_coeff);
+    /// println!("Dust Density Coeff: {}", params.dust_density_coefficient);
     /// println!("Percent of cloud as dust: {}", params.percent_dust_in_cloud);
     /// ```
     pub static ref ACCRETION_PARAMETERS: Mutex<AccretionParameters> = Mutex::new(AccretionParameters {

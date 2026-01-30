@@ -46,7 +46,9 @@ impl StarSystem {
     /// - The function panics if it fails to parse the provided `star_type` into a valid star configuration.
     ///
     /// # Examples
-    /// ```
+    /// ```rust
+    /// use starform_rust::star_system::StarSystem;
+    ///
     /// // Generate a random star system
     /// let random_system = StarSystem::new("");
     ///
