@@ -13,7 +13,6 @@ struct Opts {
     // Indicates moons should be generated for all planets
     // #[structopt(short = "m", help = "Generate moons for each planet")]
     // flag_moons: bool,
-
     /// Indicates verbose output should be generated
     #[structopt(short = "v", help = "Enable verbose logging", default_value = "0")]
     loglevel: u8,
