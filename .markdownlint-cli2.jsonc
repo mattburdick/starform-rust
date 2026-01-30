@@ -1,13 +1,13 @@
 {
-  "config": {
-    "default": true,
-    "MD013": false
-  },
-  "globs": [
-    "**/*.md"
-  ],
-  "ignores": [
-    "target/**",
-    "build/**"
-  ]
+    "config": {
+        "default": true,
+        "MD013": false
+    },
+    "globs": [
+        "**/*.md"
+    ],
+    "ignores": [
+        "target/**",
+        "build/**"
+    ]
 }
