@@ -2,7 +2,7 @@
 
 use crate::star_system::StarSystem;
 
-mod accretion_disk;
+pub mod accretion_disk;
 pub mod accretion_parameters;
 pub mod body;
 pub mod consts;
@@ -17,6 +17,10 @@ use std::sync::Mutex;
 
 lazy_static! {
     static ref LOGLEVEL: Mutex<u8> = Mutex::new(0); // Default log level
+}
+
+pub fn loglevel_mutex() -> &'static Mutex<u8> {
+    &*LOGLEVEL
 }
 
 /// Retrieves the current global log level with error handling.
@@ -52,7 +56,7 @@ lazy_static! {
 #[macro_export]
 macro_rules! get_log_level {
     () => {
-        $crate::LOGLEVEL.lock().unwrap_or_else(|e| {
+        $crate::loglevel_mutex().lock().unwrap_or_else(|e| {
             eprintln!("Error locking LOGLEVEL: {}", e);
             e.into_inner() // Return the MutexGuard
         })
@@ -87,7 +91,7 @@ macro_rules! get_log_level {
 #[macro_export]
 macro_rules! set_log_level {
     ($new_level:expr) => {
-        if let Ok(mut log_level) = LOGLEVEL.lock() {
+        if let Ok(mut log_level) = $crate::loglevel_mutex().lock() {
             *log_level = $new_level;
         } else {
             eprintln!("Failed to lock LOGLEVEL for writing.");
