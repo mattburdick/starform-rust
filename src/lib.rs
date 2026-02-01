@@ -6,6 +6,7 @@ pub mod accretion_disk;
 pub mod accretion_parameters;
 pub mod body;
 pub mod consts;
+pub mod enviro;
 pub mod random;
 pub mod star;
 pub mod star_system;

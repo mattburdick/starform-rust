@@ -40,7 +40,7 @@ pub const CM_PER_AU: f64 = 1.495978707E13; // number of cm in an AU
 pub const KM_PER_AU: f64 = CM_PER_AU / CM_PER_KM;
 
 #[allow(dead_code)]
-mod unused_constants {
+pub mod unused_constants {
     pub const RADIANS_PER_ROTATION: f64 = 2.0 * std::f32::consts::PI as f64;
     pub const CHANGE_IN_EARTH_ANG_VEL: f64 = -1.3E-15; // Units of radians/sec/year
     pub const EARTH_MASS_IN_GRAMS: f64 = 5.977E27; // Units of grams
