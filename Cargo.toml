@@ -20,4 +20,5 @@ name = "starform-rust"
 path = "src/main.rs"
 
 [workspace]
+members = ["xtask"]
 

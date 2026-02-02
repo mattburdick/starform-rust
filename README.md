@@ -18,15 +18,31 @@ This is both a command line app and a lib.
 
 ## Using the Library in Other Projects
 
-If you want to use your library in other projects, you can add it as a dependency in the
-`Cargo.toml` of the consuming project:
+If you want to use this library in other projects, add it as a dependency in the
+`Cargo.toml` of the consuming project.
+
+### Recommended: git dependency
+
+This is the easiest setup for CI and for consumers who don't want a local checkout:
 
 ```toml
 [dependencies]
-my_project = { path = "../path_to_starform" }
+starform-rust = { git = "https://github.com/mattburdick/starform-rust.git" }
 ```
 
-Clone the two repos into the same folder structure. For instance:
+### Local development: path dependency
+
+If you're iterating on `starform-rust` itself (or on a consumer like `starform-ui`) you can use a
+path dependency instead:
+
+```toml
+[dependencies]
+starform-rust = { path = "../starform-rust" }
+```
+
+There are a couple common directory layouts that work well:
+
+#### Option A: sibling repos (recommended for two-repo workflows)
 
 ```text
 /Users/yourname/Documents/GitHub/
@@ -39,4 +55,18 @@ Clone the two repos into the same folder structure. For instance:
 │   ├── Cargo.toml
 │   └── src/
 │       └── main.rs
+```
+
+#### Option B: vendored under a consumer repo (handy for quick local iteration)
+
+This is also valid, but is purely a developer convenience. For example, `starform-ui` can be
+configured to depend on `starform-rust = { path = "starform-rust" }` if this folder exists:
+
+```text
+starform-ui/
+├── Cargo.toml
+├── src/
+└── starform-rust/
+  ├── Cargo.toml
+  └── src/
 ```

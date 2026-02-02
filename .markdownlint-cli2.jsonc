@@ -8,6 +8,8 @@
     ],
     "ignores": [
         "target/**",
-        "build/**"
+        "build/**",
+        "dist/**",
+        "**/node_modules/**"
     ]
 }
