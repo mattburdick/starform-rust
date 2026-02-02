@@ -88,8 +88,8 @@ pub fn kothari_radius(mass: f64, mass_type: MassType, zone: OrbitalZone) -> f64 
     let mut temp2 = consts::A2_20 * atomic_weight.powf(4.0 / 3.0) * consts::SOLAR_MASS_IN_GRAMS.powf(2.0 / 3.0);
     temp2 *= mass.powf(2.0 / 3.0);
     temp2 /= consts::A1_20 * atomic_num.powf(2.0);
-    temp2 = 1.0 + temp2;
-    temp = temp / temp2;
+    temp2 += 1.0;
+    temp /= temp2;
 
     (temp * mass.powf(1.0 / 3.0)) / consts::CM_PER_KM
 }
@@ -139,6 +139,7 @@ pub fn period(separation: f64, small_mass: f64, large_mass: f64) -> f64 {
 /// The length of the day is returned in units of hours.
 ///
 /// `resonance` is set to `true` if spin resonance occurs.
+#[allow(clippy::too_many_arguments)]
 pub fn day_length(
     mass: f64,
     radius: f64,
