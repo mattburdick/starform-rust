@@ -3,10 +3,12 @@
 //!
 //! Ported from enviro.c (1991) with minimal behavioral changes.
 
+use crate::body::Body;
 use crate::body::OrbitalZone;
 use crate::consts;
 use crate::consts::unused_constants as env;
 use crate::random::about;
+use crate::star::Star;
 use crate::types::MassType;
 
 /// Environmental properties for a planet/body.
@@ -27,6 +29,60 @@ pub struct EnviroProperties {
     pub ice_cover: f64,
     pub albedo: f64,
     pub surf_temp: f64,
+}
+
+/// Computes a planet's environmental properties from its orbital + physical parameters and its primary star.
+///
+/// This is a convenience wrapper around the legacy `enviro` routines so callers (like the UI) don't need
+/// to manually compose the algorithm.
+pub fn compute_enviro_properties_for_body(body: &Body, star: &Star) -> EnviroProperties {
+    let zone = body.orbit_zone.clone();
+
+    // Some bodies may not have density/radius populated (or may be placeholders).
+    // Use best-effort fallbacks so the UI can still show something.
+    let density_gcc = if body.density_in_grams_per_cc > 0.0 {
+        body.density_in_grams_per_cc
+    } else {
+        empirical_density(body.mass_in_sols, body.a, body.mass_type, star.luminosity_in_sols)
+    };
+
+    let radius_km = if body.radius_in_km > 0.0 {
+        body.radius_in_km
+    } else {
+        volume_radius(body.mass_in_sols, density_gcc)
+    };
+
+    let smallest_mw_retained = molecule_limit(body.mass_in_sols, radius_km);
+    let greenhouse_effect = grnhouse(zone.clone(), body.a, star.r_greenhouse);
+
+    // For the volatile inventory routine, use nitrogen as the baseline molecule.
+    let rms_velocity = rms_vel(env::MOL_NITROGEN, body.a, star.luminosity_in_sols);
+    let escape_velocity = escape_vel(body.mass_in_sols, radius_km);
+    let volatile_gas_inventory = vol_inventory(
+        body.mass_in_sols,
+        escape_velocity,
+        rms_velocity,
+        star.mass_in_sols,
+        zone.clone(),
+        greenhouse_effect,
+    );
+
+    let surface_grav_gees = gravity(accel(body.mass_in_sols, radius_km));
+    let surf_pressure = pressure(volatile_gas_inventory, radius_km, surface_grav_gees);
+    let boil_point = boiling_point(surf_pressure);
+
+    let mut props = EnviroProperties {
+        a: body.a,
+        radius_in_km: radius_km,
+        molec_weight: smallest_mw_retained,
+        surf_pressure,
+        volatile_gas_inventory,
+        boil_point,
+        ..Default::default()
+    };
+
+    iterate_surface_temp(&mut props, star.r_ecosphere);
+    props
 }
 
 /// This function, given the orbital radius of a planet in AU, returns the

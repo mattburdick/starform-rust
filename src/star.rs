@@ -361,6 +361,15 @@ pub struct Star {
     pub main_seq_life: f64,
     pub r_ecosphere: f64,
     pub r_greenhouse: f64,
+    /// Approximate distance (AU) where water ice can condense in the protoplanetary disk.
+    ///
+    /// This is commonly called the **frost line** or **snow line**.
+    pub r_frost_line: f64,
+
+    /// Approximate distance (AU) where refractory carbon compounds can condense.
+    ///
+    /// This is commonly called the **soot line**.
+    pub r_soot_line: f64,
 }
 
 impl Default for Star {
@@ -380,6 +389,8 @@ impl Default for Star {
             main_seq_life: 0.0,
             r_ecosphere: 0.0,
             r_greenhouse: 0.0,
+            r_frost_line: 0.0,
+            r_soot_line: 0.0,
         }
     }
 }
@@ -409,11 +420,35 @@ impl fmt::Display for Star {
             )?;
         }
 
-        writeln!(f, "Earthlike insolation at:     {:>7.3} AU", self.r_ecosphere)
+        writeln!(f, "Earthlike insolation at:     {:>7.3} AU", self.r_ecosphere)?;
+        writeln!(f, "Greenhouse onset inside:     {:>7.3} AU", self.r_greenhouse)?;
+        writeln!(f, "Frost line at:               {:>7.3} AU", self.r_frost_line)?;
+        writeln!(f, "Soot line at:                {:>7.3} AU", self.r_soot_line)
     }
 }
 
 impl Star {
+    /// Canonical frost (snow) line distance in our Solar System (AU).
+    ///
+    /// This is a widely used ballpark value; different models place the snow line between
+    /// ~2–3 AU for a Sun-like star depending on disk opacity and accretion heating.
+    pub const SOLAR_FROST_LINE_AU: f64 = 2.7;
+
+    /// Canonical soot line distance in our Solar System (AU).
+    ///
+    /// This is a rough value that depends on what condensation temperature you choose for
+    /// carbon-bearing solids.
+    pub const SOLAR_SOOT_LINE_AU: f64 = 0.15;
+
+    /// Default condensation temperature used for the frost line (water ice), in Kelvin.
+    pub const DEFAULT_FROST_LINE_T_COND_K: f64 = 170.0;
+
+    /// Default condensation temperature used for the soot line (carbon compounds), in Kelvin.
+    ///
+    /// Chosen so that a Sun-like star yields a soot line close to ~0.15 AU when using
+    /// the equilibrium-temperature model with $A = 0$.
+    pub const DEFAULT_SOOT_LINE_T_COND_K: f64 = 700.0;
+
     pub fn stellar_classification(&self) -> String {
         format!(
             "{}{} {}",
@@ -749,24 +784,33 @@ impl Star {
     /// ```
     ///
     /// # Notes
-    /// - This method assumes a simplified model where the square root of the luminosity is proportional to the radius
-    ///   of the habitable zone. This is based on the assumption that a star's luminosity affects the amount of radiant
-    ///   energy a planet receives, which in turn influences the range of distances at which conditions might support life.
+    /// ## Formula
+    ///
+    /// We treat `luminosity_in_sols` as the dimensionless ratio $L_*/L_\odot$.
+    /// In AU, the ecosphere (Earthlike insolation) radius is:
+    ///
+    /// $$r_{ecosphere} = \sqrt{\frac{L_*}{L_\odot}}\ \mathrm{AU}$$
+    ///
+    /// ## Notes
+    /// This is a simplified scaling for *equal stellar flux*. Detailed habitable-zone boundaries depend on atmospheric
+    /// composition and feedbacks; this function is used as a convenient reference distance for the rest of the model.
     pub fn r_ecosphere(luminosity_in_sols: f64) -> f64 {
         luminosity_in_sols.sqrt()
     }
 
-    /// Calculates the radius at which a significant greenhouse effect is expected, based on the radius of the ecosphere.
-    /// The greenhouse effect radius extends beyond the standard ecosphere radius, factoring in the potential warming
-    /// effects due to a planet's atmosphere.
+    /// Calculates the **inner** radius at which a strong (runaway) greenhouse effect is expected, based on the
+    /// ecosphere reference distance.
+    ///
+    /// In this codebase, `r_greenhouse` is used as a threshold for whether a planet in the inner orbital zone is
+    /// expected to be in a greenhouse state (see `enviro::grnhouse`). With the default constant, this ends up slightly
+    /// **inside** `r_ecosphere` and acts as an approximate "too-hot" boundary.
     ///
     /// # Parameters
     /// * `r_ecosphere` - The radius of the ecosphere, typically defined as the distance from a star at which a planet
     ///   can maintain liquid water on its surface under Earth-like conditions, measured in astronomical units (AU).
     ///
     /// # Returns
-    /// * `r_greenhouse` - The extended radius accounting for the greenhouse effect, which could potentially allow
-    ///   a planet to support liquid water beyond the traditional habitable zone due to atmospheric warming.
+    /// * `r_greenhouse` - The inner greenhouse threshold radius in AU.
     ///
     /// # Example
     /// ```rust
@@ -778,11 +822,100 @@ impl Star {
     /// ```
     ///
     /// # Notes
-    /// - The constant `consts::GREENHOUSE_EFFECT_CONST` is used to scale the ecosphere radius to calculate the greenhouse radius.
-    ///   This constant should reflect an empirically or theoretically derived multiplier that considers how much further out
-    ///   the capability for liquid water might extend due to atmospheric effects.
+    /// ## Formula
+    ///
+    /// $$r_{greenhouse} = r_{ecosphere} \cdot C_{gh}$$
+    ///
+    /// where $C_{gh}$ is `consts::GREENHOUSE_EFFECT_CONST`.
     pub fn r_greenhouse(r_ecosphere: f64) -> f64 {
         r_ecosphere * consts::GREENHOUSE_EFFECT_CONST
+    }
+
+    /// Computes the orbital distance (in AU) at which a body's radiative **equilibrium temperature** equals a target
+    /// condensation temperature.
+    ///
+    /// This is the core calculation behind condensation lines like the frost (snow) line and soot line.
+    ///
+    /// ## Equilibrium temperature model
+    ///
+    /// We use the common blackbody equilibrium approximation:
+    ///
+    /// $$T(r) = T_* \cdot \left(\frac{R_*}{2r}\right)^{1/2} \cdot (1 - A)^{1/4}$$
+    ///
+    /// Solving for $r$ at $T(r) = T_{cond}$ gives:
+    ///
+    /// $$r = \frac{R_*}{2} \cdot \left(\frac{T_*}{T_{cond}}\right)^2 \cdot (1 - A)^{1/2}$$
+    ///
+    /// Where:
+    /// - $T_*$ is the stellar effective temperature (K)
+    /// - $R_*$ is the stellar radius (AU)
+    /// - $A$ is the Bond albedo (dimensionless, often approximated as 0)
+    /// - $T_{cond}$ is the target condensation temperature (K)
+    ///
+    /// # Parameters
+    /// - `stellar_radius_au`: $R_*$ in AU
+    /// - `stellar_temperature_k`: $T_*$ in Kelvin
+    /// - `condensation_temperature_k`: $T_{cond}$ in Kelvin
+    /// - `albedo`: $A$ (0..1). Use 0 for the common simplified estimate.
+    ///
+    /// # Returns
+    /// Distance $r$ in AU.
+    pub fn condensation_line_distance_au(
+        stellar_radius_au: f64,
+        stellar_temperature_k: f64,
+        condensation_temperature_k: f64,
+        albedo: f64,
+    ) -> f64 {
+        let a = albedo.clamp(0.0, 1.0);
+        let one_minus_a_sqrt = (1.0 - a).sqrt();
+        let t_ratio = stellar_temperature_k / condensation_temperature_k;
+        (stellar_radius_au / 2.0) * t_ratio * t_ratio * one_minus_a_sqrt
+    }
+
+    /// Estimates the frost (snow) line distance (AU) from stellar luminosity using a Solar-calibrated scaling.
+    ///
+    /// ## Formula
+    ///
+    /// $$r_{frost} \approx r_{frost,\odot} \cdot \sqrt{\frac{L_*}{L_\odot}}$$
+    ///
+    /// with $r_{frost,\odot} = 2.7\ \mathrm{AU}$.
+    pub fn frost_line_au_from_luminosity(luminosity_in_sols: f64) -> f64 {
+        Self::SOLAR_FROST_LINE_AU * luminosity_in_sols.max(0.0).sqrt()
+    }
+
+    /// Estimates the soot line distance (AU) from stellar luminosity using a Solar-calibrated scaling.
+    ///
+    /// ## Formula
+    ///
+    /// $$r_{soot} \approx r_{soot,\odot} \cdot \sqrt{\frac{L_*}{L_\odot}}$$
+    ///
+    /// with $r_{soot,\odot} = 0.15\ \mathrm{AU}$.
+    pub fn soot_line_au_from_luminosity(luminosity_in_sols: f64) -> f64 {
+        Self::SOLAR_SOOT_LINE_AU * luminosity_in_sols.max(0.0).sqrt()
+    }
+
+    /// Estimates the frost (snow) line distance (AU) using the equilibrium-temperature model.
+    ///
+    /// This uses `DEFAULT_FROST_LINE_T_COND_K` (170 K) and `albedo = 0`.
+    pub fn frost_line_au_from_star_params(stellar_radius_au: f64, stellar_temperature_k: f64) -> f64 {
+        Self::condensation_line_distance_au(
+            stellar_radius_au,
+            stellar_temperature_k,
+            Self::DEFAULT_FROST_LINE_T_COND_K,
+            0.0,
+        )
+    }
+
+    /// Estimates the soot line distance (AU) using the equilibrium-temperature model.
+    ///
+    /// This uses `DEFAULT_SOOT_LINE_T_COND_K` (700 K) and `albedo = 0`.
+    pub fn soot_line_au_from_star_params(stellar_radius_au: f64, stellar_temperature_k: f64) -> f64 {
+        Self::condensation_line_distance_au(
+            stellar_radius_au,
+            stellar_temperature_k,
+            Self::DEFAULT_SOOT_LINE_T_COND_K,
+            0.0,
+        )
     }
 
     pub fn mass_in_sols(max_mass_in_sols: f64) -> f64 {
@@ -843,6 +976,11 @@ impl Star {
         self.age = Star::age(self.mass_in_sols, self.luminosity_in_sols);
         self.r_ecosphere = Star::r_ecosphere(self.luminosity_in_sols);
         self.r_greenhouse = Star::r_greenhouse(self.r_ecosphere);
+
+        // Condensation lines (simple luminosity scaling, Solar-calibrated).
+        // These are intended as quick reference distances for UI and disk modeling.
+        self.r_frost_line = Star::frost_line_au_from_luminosity(self.luminosity_in_sols);
+        self.r_soot_line = Star::soot_line_au_from_luminosity(self.luminosity_in_sols);
     }
 
     /// Constructs a `Star` from a string input detailing its spectral type and orbit, typically provided with the "-t" flag
@@ -1025,5 +1163,32 @@ impl Star {
         }
 
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solar_scaled_lines_match_calibration() {
+        let l = 1.0;
+        assert!((Star::frost_line_au_from_luminosity(l) - Star::SOLAR_FROST_LINE_AU).abs() < 1.0e-12);
+        assert!((Star::soot_line_au_from_luminosity(l) - Star::SOLAR_SOOT_LINE_AU).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn equilibrium_model_matches_solar_ballpark() {
+        // Sun-like star parameters in this codebase's units.
+        let r_sun_au = consts::SOLAR_RADII_PER_AU;
+        let t_sun_k = consts::SOLAR_TEMPERATURE_IN_KELVIN;
+
+        let frost = Star::frost_line_au_from_star_params(r_sun_au, t_sun_k);
+        // For 170 K and A=0, the model lands very close to the canonical ~2.7 AU.
+        assert!((frost - 2.7).abs() < 0.05);
+
+        let soot = Star::soot_line_au_from_star_params(r_sun_au, t_sun_k);
+        // With 700 K and A=0, this is close to ~0.15 AU.
+        assert!((soot - 0.15).abs() < 0.02);
     }
 }
