@@ -24,6 +24,9 @@ pub struct EnviroProperties {
     pub surf_pressure: f64,
     pub volatile_gas_inventory: f64,
     pub boil_point: f64,
+    /// Total water coverage fraction (0–1), liquid and frozen combined.
+    /// Use `ice_cover` to determine how much of this is frozen, and
+    /// `(hydrosphere - ice_cover).max(0.0)` for the liquid portion.
     pub hydrosphere: f64,
     pub cloud_cover: f64,
     pub ice_cover: f64,
@@ -310,6 +313,14 @@ pub fn grnhouse(zone: OrbitalZone, orb_radius: f64, r_greenhouse: f64) -> bool {
 
 /// This implements Fogg's eq.17. The `inventory` returned is unitless.
 /// Returns a measure of the amount of gasses locked up inside the planet.
+///
+/// The zone 3 proportion constant has been raised from 250 to 2500 to
+/// better reflect volatile delivery by cometary bombardment in the outer
+/// system (the original value produced near-zero hydrospheres on all outer
+/// rocky bodies regardless of temperature). The non-greenhouse retention
+/// factor is now graduated by zone rather than a flat /100 divisor: inner
+/// rocky worlds plausibly retain more volatiles than outer ones without a
+/// full runaway greenhouse.
 pub fn vol_inventory(
     mass: f64,
     esc_velocity: f64,
@@ -326,7 +337,7 @@ pub fn vol_inventory(
     let proportion_const = match zone {
         OrbitalZone::Zone1 => 100000.0,
         OrbitalZone::Zone2 => 75000.0,
-        OrbitalZone::Zone3 => 250.0,
+        OrbitalZone::Zone3 => 2500.0, // raised from 250; see doc comment above
     };
 
     let earth_units = mass * consts::SUN_MASS_IN_EARTH_MASSES;
@@ -336,7 +347,15 @@ pub fn vol_inventory(
     if greenhouse_effect {
         temp2
     } else {
-        temp2 / 100.0
+        // Originally a flat /100 for all zones. Now graduated so that inner
+        // rocky worlds (Zone1) suffer a smaller penalty than cold outer ones
+        // (Zone3), where cold-trapping makes volatile loss more severe.
+        let retention_divisor = match zone {
+            OrbitalZone::Zone1 => 10.0,
+            OrbitalZone::Zone2 => 40.0,
+            OrbitalZone::Zone3 => 100.0,
+        };
+        temp2 / retention_divisor
     }
 }
 
@@ -545,7 +564,18 @@ pub fn opacity(molecular_weight: f64, surf_pressure: f64) -> f64 {
 /// The `counter` variable used in the iteration loop is used to break
 /// out of the loop after 100 iterations - just in case the temperature
 /// refuses to converge.
+///
+/// `planet.hydrosphere` is the total water fraction (liquid + frozen); it is
+/// never zeroed by temperature. `planet.ice_cover` holds the frozen portion:
+/// the full hydrosphere when the surface is below freezing or below the water
+/// triple-point pressure (6.1 mbar), or a partial polar-cap fraction (Fogg
+/// eq.24) when above freezing. The liquid fraction used for albedo is derived
+/// as `(hydrosphere - ice_cover).max(0.0)`.
 pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
+    // Triple-point pressure of water in millibars. Below this, liquid water
+    // cannot exist on the surface regardless of temperature.
+    const TRIPLE_POINT_PRESSURE_MB: f64 = 6.1;
+
     let mut albedo = env::EARTH_ALBEDO;
     let water = hydro_fraction(planet.volatile_gas_inventory, planet.radius_in_km);
     let optical_depth = opacity(planet.molec_weight, planet.surf_pressure);
@@ -571,13 +601,18 @@ pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
         }
 
         clouds = cloud_fraction(new_temp, planet.molec_weight, planet.radius_in_km, water);
-        ice = ice_fraction(water, new_temp);
 
-        if (new_temp >= planet.boil_point) || (new_temp <= env::FREEZING_POINT_OF_WATER) {
-            eff_water = 0.0;
+        // All water is frozen when below the freezing point or when pressure
+        // is below the triple point; otherwise use Fogg's eq.24 for partial
+        // polar-cap coverage above freezing.
+        ice = if new_temp <= env::FREEZING_POINT_OF_WATER || planet.surf_pressure < TRIPLE_POINT_PRESSURE_MB {
+            water
         } else {
-            eff_water = water;
-        }
+            ice_fraction(water, new_temp)
+        };
+
+        // Liquid fraction is the water budget minus what is frozen.
+        eff_water = (water - ice).max(0.0);
 
         albedo = planet_albedo(eff_water, clouds, ice, planet.surf_pressure);
         counter += 1;
@@ -587,7 +622,7 @@ pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
         }
     }
 
-    planet.hydrosphere = eff_water;
+    planet.hydrosphere = water;
     planet.cloud_cover = clouds;
     planet.ice_cover = ice;
     planet.albedo = albedo;

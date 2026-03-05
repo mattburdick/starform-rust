@@ -4,3 +4,6 @@ Cargo.lock
 # macOS specific
 .DS_Store
 
+# Local / scratch documentation
+docs/other/
+

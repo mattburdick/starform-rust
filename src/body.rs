@@ -251,6 +251,58 @@ impl Body {
         2.44 * self.radius_in_km / consts::KM_PER_AU
     }
 
+    /// Calculates the Hill radius of this body in astronomical units (AU).
+    ///
+    /// The Hill sphere is a stability boundary for satellites orbiting a smaller body (e.g. moons orbiting
+    /// a planet) in the presence of a much larger primary (e.g. a star). In practice it answers:
+    /// "How far from this body can an object orbit and remain gravitationally bound?"
+    ///
+    /// # Hill sphere formula
+    ///
+    /// $$r_{Hill} = a \left(\frac{m}{3M}\right)^{1/3}$$
+    ///
+    /// Where:
+    /// - $a$ = this body's semi-major axis around the primary (AU)
+    /// - $m$ = this body's mass (solar masses)
+    /// - $M$ = the primary body's mass (solar masses)
+    ///
+    /// # Sphere of Influence (SOI)
+    ///
+    /// The **Sphere of Influence (SOI)** is calculated using this formula:
+    ///
+    /// $$r_{SOI} = a \left(\frac{m}{M}\right)^{2/5}$$
+    ///
+    /// Where:
+    /// - **a** = the semi-major axis of the smaller body's orbit around the larger one (i.e. the distance between them)
+    /// - **m** = mass of the smaller body (e.g. the planet)
+    /// - **M** = mass of the larger body (e.g. the star)
+    ///
+    /// As a concrete example — Earth's SOI:
+    ///
+    /// - a = 1 AU (150 million km)
+    /// - m = Earth's mass (5.97 × 10²⁴ kg)
+    /// - M = Sun's mass (1.99 × 10³⁰ kg)
+    ///
+    /// The ratio m/M ≈ 3 × 10⁻⁶, and raising that to the 2/5 power gives about 0.006, so:
+    ///
+    /// **Earth's SOI ≈ 900,000 km** (about 145 Earth radii)
+    ///
+    /// For comparison, the Moon orbits at ~384,000 km — comfortably inside it.
+    ///
+    /// # How it differs from the Hill Sphere
+    ///
+    /// The Hill sphere uses the exponent **1/3** instead of **2/5**. The SOI is often considered more
+    /// accurate for practical spacecraft navigation because it models where the smaller body's gravity
+    /// dominates the trajectory equations over the primary's perturbations. The Hill sphere is more of
+    /// a stability boundary for long-lived satellite orbits.
+    pub fn hill_radius_in_au(&self, primary_mass_in_sols: f64) -> f64 {
+        if !(primary_mass_in_sols > 0.0) || !(self.mass_in_sols > 0.0) || !(self.a > 0.0) {
+            return 0.0;
+        }
+
+        self.a * (self.mass_in_sols / (3.0 * primary_mass_in_sols)).powf(1.0 / 3.0)
+    }
+
     /// Performs a collision between two celestial bodies, updating their orbital and physical properties.
     ///
     /// This function calculates the new orbital semi-major axis (`a`), eccentricity (`e`), and combined mass after
