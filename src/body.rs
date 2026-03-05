@@ -296,7 +296,11 @@ impl Body {
     /// dominates the trajectory equations over the primary's perturbations. The Hill sphere is more of
     /// a stability boundary for long-lived satellite orbits.
     pub fn hill_radius_in_au(&self, primary_mass_in_sols: f64) -> f64 {
-        if !(primary_mass_in_sols > 0.0) || !(self.mass_in_sols > 0.0) || !(self.a > 0.0) {
+        fn is_positive(value: f64) -> bool {
+            value.partial_cmp(&0.0) == Some(std::cmp::Ordering::Greater)
+        }
+
+        if !is_positive(primary_mass_in_sols) || !is_positive(self.mass_in_sols) || !is_positive(self.a) {
             return 0.0;
         }
 
