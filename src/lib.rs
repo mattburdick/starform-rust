@@ -5,8 +5,10 @@ use crate::star_system::StarSystem;
 pub mod accretion_disk;
 pub mod accretion_parameters;
 pub mod body;
+pub mod condensation;
 pub mod consts;
 pub mod enviro;
+pub mod generation;
 pub mod random;
 pub mod star;
 pub mod star_system;
@@ -15,6 +17,8 @@ pub mod types;
 #[macro_use]
 extern crate lazy_static;
 use std::sync::Mutex;
+
+use crate::{accretion_parameters::set_all_accretion_parameters, generation::SystemGenerationConfig};
 
 lazy_static! {
     static ref LOGLEVEL: Mutex<u8> = Mutex::new(0); // Default log level
@@ -161,4 +165,10 @@ macro_rules! log {
 pub fn generate_star_system(loglevel: u8, star_type: String) -> StarSystem {
     set_log_level!(loglevel);
     StarSystem::new(&star_type)
+}
+
+pub fn generate_star_system_with_config(loglevel: u8, generation_config: &SystemGenerationConfig) -> StarSystem {
+    set_log_level!(loglevel);
+    set_all_accretion_parameters(generation_config.accretion);
+    StarSystem::new_with_config(generation_config)
 }

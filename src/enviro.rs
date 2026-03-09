@@ -1,10 +1,10 @@
 //! Planetary environment routines for determining things like planet radius, density,
 //! mass, surface temp, etc.
 //!
-//! Ported from enviro.c (1991) with minimal behavioral changes.
+//! Originally ported from enviro.c (1991), now partially modernized with
+//! class-based atmosphere and climate approximations.
 
-use crate::body::Body;
-use crate::body::OrbitalZone;
+use crate::body::{Body, BodyClimateClass, OrbitalZone};
 use crate::consts;
 use crate::consts::unused_constants as env;
 use crate::random::about;
@@ -32,6 +32,713 @@ pub struct EnviroProperties {
     pub ice_cover: f64,
     pub albedo: f64,
     pub surf_temp: f64,
+    /// Compact atmosphere label used by tests and future UI/game-facing presentation.
+    pub atmosphere_class: AtmosphereClass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AtmosphereClass {
+    #[default]
+    Airless,
+    Trace,
+    VeryThin,
+    VeryThinTainted,
+    Thin,
+    ThinTainted,
+    Standard,
+    StandardTainted,
+    Dense,
+    DenseTainted,
+    Exotic,
+    Corrosive,
+    Insidious,
+    DenseHigh,
+    ThinLow,
+    Steam,
+    H2Rich,
+    GasGiant,
+    Unusual,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct VolatileRetentionProfile {
+    proportion_const: f64,
+    retention_divisor: f64,
+    greenhouse_candidate: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AtmosphereSignals {
+    eq_temp_k: f64,
+    smallest_mw_retained: f64,
+    volatile_gas_inventory: f64,
+    surface_grav_gees: f64,
+    pressure_proxy_mb: f64,
+    mass_earth: f64,
+    gas_fraction: f64,
+    water_inventory: f64,
+    volatile_inventory_fraction: f64,
+    climate_class: Option<BodyClimateClass>,
+    greenhouse_effect: bool,
+    mass_type: MassType,
+}
+
+fn legacy_volatile_retention_profile(zone: OrbitalZone) -> VolatileRetentionProfile {
+    match zone {
+        OrbitalZone::Zone1 => VolatileRetentionProfile {
+            proportion_const: 100000.0,
+            retention_divisor: 10.0,
+            greenhouse_candidate: true,
+        },
+        OrbitalZone::Zone2 => VolatileRetentionProfile {
+            proportion_const: 75000.0,
+            retention_divisor: 40.0,
+            greenhouse_candidate: false,
+        },
+        OrbitalZone::Zone3 => VolatileRetentionProfile {
+            proportion_const: 2500.0,
+            retention_divisor: 100.0,
+            greenhouse_candidate: false,
+        },
+    }
+}
+
+fn volatile_retention_profile_for_body(body: &Body) -> VolatileRetentionProfile {
+    match body.climate_class() {
+        Some(BodyClimateClass::DryRocky) => VolatileRetentionProfile {
+            proportion_const: 100000.0,
+            retention_divisor: 10.0,
+            greenhouse_candidate: true,
+        },
+        Some(BodyClimateClass::TemperateRocky) => VolatileRetentionProfile {
+            proportion_const: 75000.0,
+            retention_divisor: 20.0,
+            greenhouse_candidate: true,
+        },
+        Some(BodyClimateClass::IceRich) => VolatileRetentionProfile {
+            proportion_const: 120000.0,
+            retention_divisor: 4.0,
+            greenhouse_candidate: false,
+        },
+        Some(BodyClimateClass::GasEnvelope) => VolatileRetentionProfile {
+            proportion_const: 160000.0,
+            retention_divisor: 2.0,
+            greenhouse_candidate: false,
+        },
+        None => legacy_volatile_retention_profile(body.orbit_zone.clone()),
+    }
+}
+
+fn greenhouse_effect_for_body(body: &Body, star: &Star, profile: VolatileRetentionProfile) -> bool {
+    profile.greenhouse_candidate && body.a < star.r_greenhouse
+}
+
+fn vol_inventory_with_profile(
+    mass: f64,
+    esc_velocity: f64,
+    rms_velocity: f64,
+    stellar_mass: f64,
+    profile: VolatileRetentionProfile,
+    greenhouse_effect: bool,
+) -> f64 {
+    let velocity_ratio = esc_velocity / rms_velocity;
+    if velocity_ratio < env::GAS_RETENTION_THRESHOLD {
+        return 0.0;
+    }
+
+    let earth_units = mass * consts::SUN_MASS_IN_EARTH_MASSES;
+    let temp1 = (profile.proportion_const * earth_units) / stellar_mass;
+    let temp2 = about(temp1, 0.2);
+
+    if greenhouse_effect {
+        temp2
+    } else {
+        temp2 / profile.retention_divisor
+    }
+}
+
+fn inferred_composition_fractions(body: &Body) -> (f64, f64, f64) {
+    if let Some(inputs) = body.formation_inputs {
+        let fractions = inputs.condensation_fractions;
+        return (
+            (fractions.water_ice + 0.35 * fractions.volatile_ices).clamp(0.0, 1.0),
+            (fractions.volatile_ices + 0.25 * fractions.water_ice).clamp(0.0, 1.0),
+            fractions.gas.clamp(0.0, 1.0),
+        );
+    }
+
+    match body.climate_class() {
+        Some(BodyClimateClass::DryRocky) => (0.02, 0.03, 0.01),
+        Some(BodyClimateClass::TemperateRocky) => (0.18, 0.07, 0.02),
+        Some(BodyClimateClass::IceRich) => (0.45, 0.20, 0.03),
+        Some(BodyClimateClass::GasEnvelope) => (0.04, 0.10, 0.60),
+        None => match body.orbit_zone {
+            OrbitalZone::Zone1 => (
+                0.01,
+                0.02,
+                if body.mass_type == MassType::GasGiant {
+                    0.60
+                } else {
+                    0.02
+                },
+            ),
+            OrbitalZone::Zone2 => (
+                0.15,
+                0.07,
+                if body.mass_type == MassType::GasGiant {
+                    0.60
+                } else {
+                    0.02
+                },
+            ),
+            OrbitalZone::Zone3 => (
+                0.45,
+                0.20,
+                if body.mass_type == MassType::GasGiant {
+                    0.60
+                } else {
+                    0.03
+                },
+            ),
+        },
+    }
+}
+
+fn seed_albedo_for_body(body: &Body) -> f64 {
+    match body.climate_class() {
+        Some(BodyClimateClass::DryRocky) => 0.16,
+        Some(BodyClimateClass::TemperateRocky) => 0.28,
+        Some(BodyClimateClass::IceRich) => 0.45,
+        Some(BodyClimateClass::GasEnvelope) => 0.42,
+        None => 0.30,
+    }
+}
+
+fn build_atmosphere_signals(
+    body: &Body,
+    star: &Star,
+    radius_km: f64,
+    smallest_mw_retained: f64,
+    volatile_gas_inventory: f64,
+    surface_grav_gees: f64,
+    greenhouse_effect: bool,
+) -> AtmosphereSignals {
+    let (water_inventory, volatile_inventory_fraction, gas_fraction) = inferred_composition_fractions(body);
+    let climate_class = body.climate_class();
+    let eq_temp_k = eff_temp(star.r_ecosphere, body.a, seed_albedo_for_body(body));
+    let escape_velocity = escape_vel(body.mass_in_sols, radius_km);
+    let rms_velocity = rms_vel(env::MOL_NITROGEN, body.a, star.luminosity_in_sols);
+    let retention_strength = if rms_velocity > 0.0 {
+        (escape_velocity / rms_velocity / env::GAS_RETENTION_THRESHOLD).clamp(0.2, 5.0)
+    } else {
+        0.2
+    };
+    let base_pressure = pressure(volatile_gas_inventory, radius_km, surface_grav_gees);
+    let compressed_base_pressure = if base_pressure > 0.0 {
+        env::EARTH_SURF_PRES_IN_MILLIBARS * (base_pressure / env::EARTH_SURF_PRES_IN_MILLIBARS).ln_1p() / 4.0
+    } else {
+        0.0
+    };
+    let thermal_pressure_floor =
+        if eq_temp_k >= 360.0 && (water_inventory >= 0.10 || volatile_inventory_fraction >= 0.15) {
+            let reservoir_strength = (0.7 * water_inventory + volatile_inventory_fraction).clamp(0.0, 1.25);
+            let heat_term = ((eq_temp_k - 330.0) / 220.0).clamp(0.0, 2.0);
+            env::EARTH_SURF_PRES_IN_MILLIBARS
+                * reservoir_strength
+                * (1.2 + 1.4 * heat_term + if greenhouse_effect { 0.8 } else { 0.0 })
+        } else {
+            0.0
+        };
+    let retained_pressure = compressed_base_pressure
+        * (0.85 + 0.15 * surface_grav_gees.clamp(0.1, 4.0))
+        * (0.75 + 0.25 * retention_strength)
+        * (0.90 + 0.80 * volatile_inventory_fraction + 2.00 * gas_fraction);
+    let pressure_proxy_mb = retained_pressure.max(thermal_pressure_floor);
+
+    AtmosphereSignals {
+        eq_temp_k,
+        smallest_mw_retained,
+        volatile_gas_inventory,
+        surface_grav_gees,
+        pressure_proxy_mb,
+        mass_earth: body.mass_in_earth_masses(),
+        gas_fraction,
+        water_inventory,
+        volatile_inventory_fraction,
+        climate_class,
+        greenhouse_effect,
+        mass_type: body.mass_type,
+    }
+}
+
+fn classify_atmosphere(signals: AtmosphereSignals) -> AtmosphereClass {
+    let pressure_atm_proxy = signals.pressure_proxy_mb / env::EARTH_SURF_PRES_IN_MILLIBARS;
+    let breathable_mw = (18.0..=42.0).contains(&signals.smallest_mw_retained);
+    let temperate_world = matches!(signals.climate_class, Some(BodyClimateClass::TemperateRocky));
+    let breathable_band = breathable_mw || temperate_world;
+    let volatile_rich = signals.volatile_inventory_fraction >= 0.12 || signals.volatile_gas_inventory >= 700.0;
+    let hot_volatile =
+        (signals.water_inventory >= 0.10 || signals.volatile_inventory_fraction >= 0.15) && signals.eq_temp_k >= 360.0;
+    let gas_rich = matches!(signals.climate_class, Some(BodyClimateClass::GasEnvelope)) || signals.gas_fraction >= 0.18;
+    let tainted_candidate = matches!(signals.climate_class, Some(BodyClimateClass::DryRocky))
+        || signals.eq_temp_k > 325.0
+        || signals.eq_temp_k < 235.0
+        || (!breathable_mw && !temperate_world)
+        || signals.greenhouse_effect;
+
+    if signals.mass_type == MassType::GasGiant || signals.mass_earth >= 30.0 || (gas_rich && pressure_atm_proxy >= 8.0)
+    {
+        return AtmosphereClass::GasGiant;
+    }
+
+    if (signals.surface_grav_gees > 2.0 && pressure_atm_proxy < 0.12)
+        || (signals.surface_grav_gees < 0.25 && pressure_atm_proxy > 4.0)
+    {
+        return AtmosphereClass::Unusual;
+    }
+
+    if gas_rich && signals.mass_earth >= 2.0 && pressure_atm_proxy >= 2.5 {
+        return AtmosphereClass::H2Rich;
+    }
+
+    if signals.eq_temp_k >= 850.0 && (pressure_atm_proxy >= 2.0 || (hot_volatile && signals.greenhouse_effect)) {
+        return AtmosphereClass::Insidious;
+    }
+
+    if signals.eq_temp_k >= 500.0 && (pressure_atm_proxy >= 1.0 || (hot_volatile && signals.greenhouse_effect)) {
+        return AtmosphereClass::Corrosive;
+    }
+
+    if hot_volatile
+        && (volatile_rich || signals.water_inventory >= 0.20)
+        && (pressure_atm_proxy >= 0.5 || signals.greenhouse_effect)
+    {
+        return AtmosphereClass::Steam;
+    }
+
+    if signals.pressure_proxy_mb < 1.0 || signals.volatile_gas_inventory <= 0.01 {
+        return AtmosphereClass::Airless;
+    }
+
+    if pressure_atm_proxy < 0.09 {
+        return AtmosphereClass::Trace;
+    }
+
+    if signals.surface_grav_gees >= 1.2 && breathable_band && pressure_atm_proxy <= 0.50 {
+        return AtmosphereClass::ThinLow;
+    }
+
+    if signals.surface_grav_gees >= 1.2 && breathable_band && pressure_atm_proxy >= 2.50 {
+        return AtmosphereClass::DenseHigh;
+    }
+
+    if gas_rich && pressure_atm_proxy >= 0.10 {
+        return AtmosphereClass::Exotic;
+    }
+
+    if !breathable_band
+        && pressure_atm_proxy >= 0.10
+        && (signals.smallest_mw_retained < 4.0 || signals.smallest_mw_retained > 80.0 || signals.eq_temp_k < 220.0)
+    {
+        return AtmosphereClass::Exotic;
+    }
+
+    if pressure_atm_proxy < 0.42 {
+        return if tainted_candidate {
+            AtmosphereClass::VeryThinTainted
+        } else {
+            AtmosphereClass::VeryThin
+        };
+    }
+
+    if pressure_atm_proxy < 0.70 {
+        return if tainted_candidate {
+            AtmosphereClass::ThinTainted
+        } else {
+            AtmosphereClass::Thin
+        };
+    }
+
+    if pressure_atm_proxy < 1.49 {
+        return if tainted_candidate {
+            AtmosphereClass::StandardTainted
+        } else {
+            AtmosphereClass::Standard
+        };
+    }
+
+    if pressure_atm_proxy < 2.49 {
+        return if tainted_candidate {
+            AtmosphereClass::DenseTainted
+        } else {
+            AtmosphereClass::Dense
+        };
+    }
+
+    AtmosphereClass::DenseHigh
+}
+
+fn atmosphere_pressure_range_mb(class: AtmosphereClass) -> (f64, f64) {
+    match class {
+        AtmosphereClass::Airless => (0.0, 0.0),
+        AtmosphereClass::Trace => (1.0, 90.0),
+        AtmosphereClass::VeryThin | AtmosphereClass::VeryThinTainted => (100.0, 420.0),
+        AtmosphereClass::Thin | AtmosphereClass::ThinTainted => (430.0, 700.0),
+        AtmosphereClass::Standard | AtmosphereClass::StandardTainted => (710.0, 1490.0),
+        AtmosphereClass::Dense | AtmosphereClass::DenseTainted => (1500.0, 2490.0),
+        AtmosphereClass::Exotic => (200.0, 4000.0),
+        AtmosphereClass::Corrosive => (1500.0, 12000.0),
+        AtmosphereClass::Insidious => (3000.0, 30000.0),
+        AtmosphereClass::DenseHigh => (2500.0, 6000.0),
+        AtmosphereClass::ThinLow => (150.0, 500.0),
+        AtmosphereClass::Steam => (2000.0, 20000.0),
+        AtmosphereClass::H2Rich => (3000.0, 50000.0),
+        AtmosphereClass::GasGiant => (15000.0, 250000.0),
+        AtmosphereClass::Unusual => (50.0, 15000.0),
+    }
+}
+
+fn atmosphere_pressure_multiplier(class: AtmosphereClass) -> f64 {
+    match class {
+        AtmosphereClass::Airless => 0.0,
+        AtmosphereClass::Trace => 0.25,
+        AtmosphereClass::VeryThin | AtmosphereClass::VeryThinTainted => 0.60,
+        AtmosphereClass::Thin | AtmosphereClass::ThinTainted => 0.85,
+        AtmosphereClass::Standard => 1.00,
+        AtmosphereClass::StandardTainted => 1.05,
+        AtmosphereClass::Dense => 1.25,
+        AtmosphereClass::DenseTainted => 1.40,
+        AtmosphereClass::Exotic => 1.10,
+        AtmosphereClass::Corrosive => 2.50,
+        AtmosphereClass::Insidious => 4.50,
+        AtmosphereClass::DenseHigh => 1.80,
+        AtmosphereClass::ThinLow => 0.45,
+        AtmosphereClass::Steam => 2.60,
+        AtmosphereClass::H2Rich => 4.50,
+        AtmosphereClass::GasGiant => 12.00,
+        AtmosphereClass::Unusual => 1.30,
+    }
+}
+
+fn class_surface_pressure_mb(class: AtmosphereClass, signals: AtmosphereSignals) -> f64 {
+    if matches!(class, AtmosphereClass::Airless) {
+        return 0.0;
+    }
+
+    let (min_mb, max_mb) = atmosphere_pressure_range_mb(class);
+    let adjusted_pressure = signals.pressure_proxy_mb
+        * atmosphere_pressure_multiplier(class)
+        * (0.9 + 0.25 * signals.surface_grav_gees.clamp(0.1, 4.0).sqrt())
+        * (1.0
+            + signals.gas_fraction
+                * if matches!(class, AtmosphereClass::H2Rich | AtmosphereClass::GasGiant) {
+                    4.0
+                } else {
+                    1.5
+                })
+        * (1.0 + signals.volatile_inventory_fraction * 0.8);
+
+    adjusted_pressure.clamp(min_mb, max_mb)
+}
+
+fn base_albedo_for_class(class: AtmosphereClass, climate_class: Option<BodyClimateClass>) -> f64 {
+    let mut base: f64 = match class {
+        AtmosphereClass::Airless => 0.12,
+        AtmosphereClass::Trace => 0.15,
+        AtmosphereClass::VeryThin | AtmosphereClass::VeryThinTainted => 0.18,
+        AtmosphereClass::Thin | AtmosphereClass::ThinTainted | AtmosphereClass::ThinLow => 0.20,
+        AtmosphereClass::Standard | AtmosphereClass::StandardTainted => 0.24,
+        AtmosphereClass::Dense | AtmosphereClass::DenseTainted => 0.28,
+        AtmosphereClass::Exotic => 0.26,
+        AtmosphereClass::Corrosive => 0.42,
+        AtmosphereClass::Insidious => 0.50,
+        AtmosphereClass::DenseHigh => 0.32,
+        AtmosphereClass::Steam => 0.55,
+        AtmosphereClass::H2Rich => 0.45,
+        AtmosphereClass::GasGiant => 0.50,
+        AtmosphereClass::Unusual => 0.30,
+    };
+
+    if matches!(climate_class, Some(BodyClimateClass::IceRich))
+        && matches!(
+            class,
+            AtmosphereClass::Airless
+                | AtmosphereClass::Trace
+                | AtmosphereClass::VeryThin
+                | AtmosphereClass::VeryThinTainted
+        )
+    {
+        base += 0.12;
+    }
+
+    base.clamp(0.05, 0.75)
+}
+
+fn greenhouse_adjustment_k(
+    class: AtmosphereClass,
+    surf_pressure_mb: f64,
+    eq_temp_k: f64,
+    water_inventory: f64,
+    greenhouse_effect: bool,
+) -> f64 {
+    if matches!(class, AtmosphereClass::Airless) || eq_temp_k <= 0.0 {
+        return 0.0;
+    }
+
+    let pressure_term = (surf_pressure_mb / env::EARTH_SURF_PRES_IN_MILLIBARS).max(0.0).ln_1p();
+    let water_term = water_inventory.clamp(0.0, 1.0);
+    let greenhouse_bonus = if greenhouse_effect { 18.0 } else { 0.0 };
+    let base = match class {
+        AtmosphereClass::Airless => 0.0,
+        AtmosphereClass::Trace => 2.0 + 3.0 * pressure_term,
+        AtmosphereClass::VeryThin | AtmosphereClass::VeryThinTainted => 5.0 + 6.0 * pressure_term,
+        AtmosphereClass::Thin | AtmosphereClass::ThinTainted | AtmosphereClass::ThinLow => {
+            9.0 + 10.0 * pressure_term + 4.0 * water_term
+        }
+        AtmosphereClass::Standard | AtmosphereClass::StandardTainted => 14.0 + 12.0 * pressure_term + 8.0 * water_term,
+        AtmosphereClass::Dense | AtmosphereClass::DenseTainted => 20.0 + 16.0 * pressure_term + 10.0 * water_term,
+        AtmosphereClass::Exotic => 18.0 + 14.0 * pressure_term,
+        AtmosphereClass::Corrosive => 60.0 + 24.0 * pressure_term + greenhouse_bonus,
+        AtmosphereClass::Insidious => 110.0 + 30.0 * pressure_term + greenhouse_bonus,
+        AtmosphereClass::DenseHigh => 28.0 + 18.0 * pressure_term + 8.0 * water_term,
+        AtmosphereClass::Steam => 80.0 + 20.0 * pressure_term + 18.0 * water_term + greenhouse_bonus,
+        AtmosphereClass::H2Rich => 65.0 + 16.0 * pressure_term,
+        AtmosphereClass::GasGiant => 120.0 + 24.0 * pressure_term,
+        AtmosphereClass::Unusual => 22.0 + 18.0 * pressure_term,
+    };
+
+    if eq_temp_k < 120.0 {
+        base * 0.4
+    } else {
+        base
+    }
+}
+
+fn surface_water_fraction(
+    class: AtmosphereClass,
+    climate_class: Option<BodyClimateClass>,
+    water_inventory: f64,
+    surf_temp_k: f64,
+    boil_point_k: f64,
+    surf_pressure_mb: f64,
+) -> f64 {
+    let climate_bias = match climate_class {
+        Some(BodyClimateClass::DryRocky) => 0.20,
+        Some(BodyClimateClass::TemperateRocky) => 0.85,
+        Some(BodyClimateClass::IceRich) => 1.15,
+        Some(BodyClimateClass::GasEnvelope) => 0.0,
+        None => 0.60,
+    };
+    let class_bias = match class {
+        AtmosphereClass::Airless => 0.35,
+        AtmosphereClass::Trace => 0.45,
+        AtmosphereClass::VeryThin | AtmosphereClass::VeryThinTainted => 0.55,
+        AtmosphereClass::Thin | AtmosphereClass::ThinTainted | AtmosphereClass::ThinLow => 0.72,
+        AtmosphereClass::Standard | AtmosphereClass::StandardTainted => 0.95,
+        AtmosphereClass::Dense | AtmosphereClass::DenseTainted => 0.90,
+        AtmosphereClass::DenseHigh => 0.75,
+        AtmosphereClass::Exotic => 0.55,
+        AtmosphereClass::Corrosive => 0.08,
+        AtmosphereClass::Insidious => 0.03,
+        AtmosphereClass::Steam => 0.12,
+        AtmosphereClass::H2Rich | AtmosphereClass::GasGiant => 0.0,
+        AtmosphereClass::Unusual => 0.60,
+    };
+
+    let mut surface_water = (water_inventory * climate_bias * class_bias).clamp(0.0, 1.0);
+
+    if surface_water == 0.0 {
+        return 0.0;
+    }
+
+    if surf_pressure_mb < 6.1 && surf_temp_k > env::FREEZING_POINT_OF_WATER + 15.0 {
+        surface_water *= 0.15;
+    }
+
+    if boil_point_k > 0.0 && surf_temp_k >= boil_point_k - 5.0 {
+        surface_water *= if matches!(class, AtmosphereClass::Steam) {
+            0.20
+        } else {
+            0.05
+        };
+    }
+
+    if surf_temp_k < 170.0 {
+        surface_water = surface_water.max((water_inventory * 0.50).min(1.0));
+    }
+
+    surface_water.clamp(0.0, 1.0)
+}
+
+fn cloud_cover_range(class: AtmosphereClass) -> (f64, f64) {
+    match class {
+        AtmosphereClass::Airless => (0.0, 0.0),
+        AtmosphereClass::Trace => (0.0, 0.08),
+        AtmosphereClass::VeryThin | AtmosphereClass::VeryThinTainted => (0.02, 0.15),
+        AtmosphereClass::Thin | AtmosphereClass::ThinTainted | AtmosphereClass::ThinLow => (0.05, 0.40),
+        AtmosphereClass::Standard | AtmosphereClass::StandardTainted => (0.10, 0.75),
+        AtmosphereClass::Dense | AtmosphereClass::DenseTainted => (0.25, 0.90),
+        AtmosphereClass::Exotic => (0.15, 0.80),
+        AtmosphereClass::Corrosive => (0.50, 1.00),
+        AtmosphereClass::Insidious => (0.65, 1.00),
+        AtmosphereClass::DenseHigh => (0.30, 0.95),
+        AtmosphereClass::Steam => (0.70, 1.00),
+        AtmosphereClass::H2Rich => (0.55, 0.95),
+        AtmosphereClass::GasGiant => (0.75, 1.00),
+        AtmosphereClass::Unusual => (0.20, 0.90),
+    }
+}
+
+fn class_cloud_cover(
+    class: AtmosphereClass,
+    hydrosphere: f64,
+    water_inventory: f64,
+    surf_temp_k: f64,
+    surf_pressure_mb: f64,
+) -> f64 {
+    let (floor, ceiling) = cloud_cover_range(class);
+    if ceiling == 0.0 {
+        return 0.0;
+    }
+
+    let water_term = hydrosphere.max(water_inventory * 0.35).clamp(0.0, 1.0);
+    let humidity_term = (1.0 - ((surf_temp_k - 290.0).abs() / 180.0)).clamp(0.0, 1.0);
+    let pressure_term = ((surf_pressure_mb / env::EARTH_SURF_PRES_IN_MILLIBARS).max(0.0).ln_1p() / 3.0).clamp(0.0, 1.0);
+    let driver = match class {
+        AtmosphereClass::Steam => 0.85,
+        AtmosphereClass::H2Rich | AtmosphereClass::GasGiant => 0.70,
+        AtmosphereClass::Corrosive | AtmosphereClass::Insidious => 0.78,
+        _ => (0.55 * water_term + 0.25 * humidity_term + 0.20 * pressure_term).clamp(0.0, 1.0),
+    };
+
+    if water_term <= 0.01
+        && !matches!(
+            class,
+            AtmosphereClass::H2Rich
+                | AtmosphereClass::GasGiant
+                | AtmosphereClass::Steam
+                | AtmosphereClass::Corrosive
+                | AtmosphereClass::Insidious
+                | AtmosphereClass::Exotic
+        )
+    {
+        return floor.min(0.05);
+    }
+
+    (floor + (ceiling - floor) * driver).clamp(0.0, 1.0)
+}
+
+fn class_ice_cover(
+    class: AtmosphereClass,
+    climate_class: Option<BodyClimateClass>,
+    hydrosphere: f64,
+    surf_temp_k: f64,
+    surf_pressure_mb: f64,
+) -> f64 {
+    if hydrosphere <= 0.0 {
+        return 0.0;
+    }
+
+    if matches!(
+        class,
+        AtmosphereClass::Steam
+            | AtmosphereClass::Corrosive
+            | AtmosphereClass::Insidious
+            | AtmosphereClass::H2Rich
+            | AtmosphereClass::GasGiant
+    ) {
+        return 0.0;
+    }
+
+    if surf_temp_k < 160.0 {
+        return hydrosphere;
+    }
+
+    if surf_pressure_mb < 6.1 {
+        return if surf_temp_k < 260.0 {
+            hydrosphere
+        } else {
+            hydrosphere * 0.30
+        };
+    }
+
+    let climate_bias = if matches!(climate_class, Some(BodyClimateClass::IceRich)) {
+        0.35
+    } else {
+        0.0
+    };
+    let cold_factor = ((283.0 - surf_temp_k) / 80.0).clamp(0.0, 1.0).powf(1.5);
+    (hydrosphere * (cold_factor + climate_bias).clamp(0.0, 1.0)).clamp(0.0, hydrosphere)
+}
+
+fn class_albedo(
+    class: AtmosphereClass,
+    climate_class: Option<BodyClimateClass>,
+    hydrosphere: f64,
+    cloud_cover: f64,
+    ice_cover: f64,
+) -> f64 {
+    let liquid_water = (hydrosphere - ice_cover).max(0.0);
+    (base_albedo_for_class(class, climate_class) + 0.20 * cloud_cover + 0.18 * ice_cover + 0.03 * hydrosphere
+        - 0.04 * liquid_water)
+        .clamp(0.05, 0.85)
+}
+
+fn apply_classified_surface_model(
+    props: &mut EnviroProperties,
+    atmosphere_class: AtmosphereClass,
+    climate_class: Option<BodyClimateClass>,
+    water_inventory: f64,
+    greenhouse_effect: bool,
+    r_ecosphere: f64,
+) {
+    let mut albedo = base_albedo_for_class(atmosphere_class, climate_class);
+    let mut hydrosphere = 0.0;
+    let mut cloud_cover = 0.0;
+    let mut ice_cover = 0.0;
+    let mut surf_temp = eff_temp(r_ecosphere, props.a, albedo);
+
+    for _ in 0..2 {
+        let effective_temp = eff_temp(r_ecosphere, props.a, albedo);
+        let greenhouse = greenhouse_adjustment_k(
+            atmosphere_class,
+            props.surf_pressure,
+            effective_temp,
+            water_inventory,
+            greenhouse_effect,
+        );
+        surf_temp = effective_temp + greenhouse;
+        hydrosphere = surface_water_fraction(
+            atmosphere_class,
+            climate_class,
+            water_inventory,
+            surf_temp,
+            props.boil_point,
+            props.surf_pressure,
+        );
+        ice_cover = class_ice_cover(
+            atmosphere_class,
+            climate_class,
+            hydrosphere,
+            surf_temp,
+            props.surf_pressure,
+        );
+        cloud_cover = class_cloud_cover(
+            atmosphere_class,
+            hydrosphere,
+            water_inventory,
+            surf_temp,
+            props.surf_pressure,
+        );
+        albedo = class_albedo(atmosphere_class, climate_class, hydrosphere, cloud_cover, ice_cover);
+    }
+
+    props.hydrosphere = hydrosphere;
+    props.cloud_cover = cloud_cover;
+    props.ice_cover = ice_cover.min(hydrosphere);
+    props.albedo = albedo;
+    props.surf_temp = surf_temp.max(0.0);
+    props.atmosphere_class = atmosphere_class;
 }
 
 /// Computes a planet's environmental properties from its orbital + physical parameters and its primary star.
@@ -39,7 +746,7 @@ pub struct EnviroProperties {
 /// This is a convenience wrapper around the legacy `enviro` routines so callers (like the UI) don't need
 /// to manually compose the algorithm.
 pub fn compute_enviro_properties_for_body(body: &Body, star: &Star) -> EnviroProperties {
-    let zone = body.orbit_zone.clone();
+    let climate_profile = volatile_retention_profile_for_body(body);
 
     // Some bodies may not have density/radius populated (or may be placeholders).
     // Use best-effort fallbacks so the UI can still show something.
@@ -56,22 +763,32 @@ pub fn compute_enviro_properties_for_body(body: &Body, star: &Star) -> EnviroPro
     };
 
     let smallest_mw_retained = molecule_limit(body.mass_in_sols, radius_km);
-    let greenhouse_effect = grnhouse(zone.clone(), body.a, star.r_greenhouse);
+    let greenhouse_effect = greenhouse_effect_for_body(body, star, climate_profile);
 
     // For the volatile inventory routine, use nitrogen as the baseline molecule.
     let rms_velocity = rms_vel(env::MOL_NITROGEN, body.a, star.luminosity_in_sols);
     let escape_velocity = escape_vel(body.mass_in_sols, radius_km);
-    let volatile_gas_inventory = vol_inventory(
+    let volatile_gas_inventory = vol_inventory_with_profile(
         body.mass_in_sols,
         escape_velocity,
         rms_velocity,
         star.mass_in_sols,
-        zone.clone(),
+        climate_profile,
         greenhouse_effect,
     );
 
     let surface_grav_gees = gravity(accel(body.mass_in_sols, radius_km));
-    let surf_pressure = pressure(volatile_gas_inventory, radius_km, surface_grav_gees);
+    let signals = build_atmosphere_signals(
+        body,
+        star,
+        radius_km,
+        smallest_mw_retained,
+        volatile_gas_inventory,
+        surface_grav_gees,
+        greenhouse_effect,
+    );
+    let atmosphere_class = classify_atmosphere(signals);
+    let surf_pressure = class_surface_pressure_mb(atmosphere_class, signals);
     let boil_point = boiling_point(surf_pressure);
 
     let mut props = EnviroProperties {
@@ -81,10 +798,18 @@ pub fn compute_enviro_properties_for_body(body: &Body, star: &Star) -> EnviroPro
         surf_pressure,
         volatile_gas_inventory,
         boil_point,
+        atmosphere_class,
         ..Default::default()
     };
 
-    iterate_surface_temp(&mut props, star.r_ecosphere);
+    apply_classified_surface_model(
+        &mut props,
+        atmosphere_class,
+        signals.climate_class,
+        signals.water_inventory,
+        greenhouse_effect,
+        star.r_ecosphere,
+    );
     props
 }
 
@@ -329,34 +1054,14 @@ pub fn vol_inventory(
     zone: OrbitalZone,
     greenhouse_effect: bool,
 ) -> f64 {
-    let velocity_ratio = esc_velocity / rms_velocity;
-    if velocity_ratio < env::GAS_RETENTION_THRESHOLD {
-        return 0.0;
-    }
-
-    let proportion_const = match zone {
-        OrbitalZone::Zone1 => 100000.0,
-        OrbitalZone::Zone2 => 75000.0,
-        OrbitalZone::Zone3 => 2500.0, // raised from 250; see doc comment above
-    };
-
-    let earth_units = mass * consts::SUN_MASS_IN_EARTH_MASSES;
-    let temp1 = (proportion_const * earth_units) / stellar_mass;
-    let temp2 = about(temp1, 0.2);
-
-    if greenhouse_effect {
-        temp2
-    } else {
-        // Originally a flat /100 for all zones. Now graduated so that inner
-        // rocky worlds (Zone1) suffer a smaller penalty than cold outer ones
-        // (Zone3), where cold-trapping makes volatile loss more severe.
-        let retention_divisor = match zone {
-            OrbitalZone::Zone1 => 10.0,
-            OrbitalZone::Zone2 => 40.0,
-            OrbitalZone::Zone3 => 100.0,
-        };
-        temp2 / retention_divisor
-    }
+    vol_inventory_with_profile(
+        mass,
+        esc_velocity,
+        rms_velocity,
+        stellar_mass,
+        legacy_volatile_retention_profile(zone),
+        greenhouse_effect,
+    )
 }
 
 /// This implements Fogg's eq.18, although it has been changed somewhat
@@ -381,6 +1086,10 @@ pub fn pressure(volatile_gas_inventory: f64, equat_radius: f64, grav: f64) -> f6
 /// pressure `surf_pressure`, given in millibars. The boiling point is
 /// returned in units of Kelvin. This is Fogg's eq.21.
 pub fn boiling_point(surf_pressure: f64) -> f64 {
+    if surf_pressure <= 0.0 {
+        return 0.0;
+    }
+
     let surface_pressure_in_bars = surf_pressure / env::MILLIBARS_PER_BAR;
     1.0 / (surface_pressure_in_bars.ln() / -5050.5 + 1.0 / 373.0)
 }
@@ -627,4 +1336,208 @@ pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
     planet.ice_cover = ice;
     planet.albedo = albedo;
     planet.surf_temp = new_temp;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        compute_enviro_properties_for_body, greenhouse_effect_for_body, volatile_retention_profile_for_body,
+        AtmosphereClass,
+    };
+    use crate::{
+        body::{Body, OrbitalZone},
+        condensation::{CondensationFractions, PlanetFormationInputs},
+        random::set_rng_seed,
+        star::Star,
+        types::MassType,
+    };
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    fn test_rng_guard() -> MutexGuard<'static, ()> {
+        static TEST_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        let mutex = TEST_GUARD.get_or_init(|| Mutex::new(()));
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn seed_rng(seed: u64) {
+        let applied = set_rng_seed(seed);
+        assert_eq!(applied, seed, "test seed should remain deterministic");
+    }
+
+    fn formation_inputs(temperature_k: f64, water_ice: f64, volatile_ices: f64, gas: f64) -> PlanetFormationInputs {
+        PlanetFormationInputs {
+            temperature_k,
+            condensation_fractions: CondensationFractions {
+                refractory_metal: 0.15,
+                silicate_rock: (1.0 - water_ice - volatile_ices - gas - 0.15).max(0.0),
+                water_ice,
+                volatile_ices,
+                gas,
+            },
+        }
+    }
+
+    fn test_star() -> Star {
+        Star {
+            mass_in_sols: 1.0,
+            luminosity_in_sols: 1.0,
+            r_ecosphere: 1.0,
+            r_greenhouse: 1.5,
+            ..Star::default()
+        }
+    }
+
+    fn test_body(a: f64, mass_in_sols: f64, radius_in_km: f64, formation: Option<PlanetFormationInputs>) -> Body {
+        Body {
+            a,
+            mass_in_sols,
+            radius_in_km,
+            density_in_grams_per_cc: 5.5,
+            mass_type: MassType::Planet,
+            orbit_zone: OrbitalZone::Zone2,
+            formation_inputs: formation,
+            ..Body::default()
+        }
+    }
+
+    #[test]
+    fn volatile_profile_prefers_formation_context_over_compatibility_zone() {
+        let dry_world = Body {
+            a: 1.0,
+            mass_in_sols: 3.0e-6,
+            mass_type: MassType::Planet,
+            orbit_zone: OrbitalZone::Zone3,
+            formation_inputs: Some(formation_inputs(1_100.0, 0.0, 0.0, 0.05)),
+            ..Body::default()
+        };
+        let icy_world = Body {
+            a: 1.0,
+            mass_in_sols: 3.0e-6,
+            mass_type: MassType::Planet,
+            orbit_zone: OrbitalZone::Zone1,
+            formation_inputs: Some(formation_inputs(40.0, 0.35, 0.25, 0.05)),
+            ..Body::default()
+        };
+
+        let dry_profile = volatile_retention_profile_for_body(&dry_world);
+        let icy_profile = volatile_retention_profile_for_body(&icy_world);
+
+        assert!(dry_profile.greenhouse_candidate);
+        assert!(!icy_profile.greenhouse_candidate);
+        assert!(icy_profile.proportion_const > dry_profile.proportion_const);
+        assert!(icy_profile.retention_divisor < dry_profile.retention_divisor);
+    }
+
+    #[test]
+    fn greenhouse_candidate_comes_from_climate_class_not_legacy_zone() {
+        let star = Star {
+            r_greenhouse: 1.5,
+            ..Star::default()
+        };
+        let icy_inner_world = Body {
+            a: 1.0,
+            mass_in_sols: 3.0e-6,
+            mass_type: MassType::Planet,
+            orbit_zone: OrbitalZone::Zone1,
+            formation_inputs: Some(formation_inputs(40.0, 0.35, 0.25, 0.05)),
+            ..Body::default()
+        };
+
+        let profile = volatile_retention_profile_for_body(&icy_inner_world);
+        assert!(!greenhouse_effect_for_body(&icy_inner_world, &star, profile));
+    }
+
+    #[test]
+    fn atmosphere_classifies_temperate_rocky_world_as_standard_band() {
+        let _guard = test_rng_guard();
+        seed_rng(101);
+        let star = test_star();
+        let body = test_body(1.0, 3.0e-6, 6_371.0, Some(formation_inputs(280.0, 0.08, 0.05, 0.01)));
+
+        let props = compute_enviro_properties_for_body(&body, &star);
+        assert!(matches!(
+            props.atmosphere_class,
+            AtmosphereClass::Standard | AtmosphereClass::StandardTainted
+        ));
+        assert!(props.surf_pressure >= 710.0);
+        assert!(props.surf_pressure <= 1490.0);
+        assert!(props.surf_temp.is_finite());
+    }
+
+    #[test]
+    fn atmosphere_classifies_small_dry_world_as_trace_or_airless() {
+        let _guard = test_rng_guard();
+        seed_rng(102);
+        let star = test_star();
+        let body = test_body(0.7, 4.0e-7, 2_600.0, Some(formation_inputs(850.0, 0.0, 0.0, 0.0)));
+
+        let props = compute_enviro_properties_for_body(&body, &star);
+
+        assert!(matches!(
+            props.atmosphere_class,
+            AtmosphereClass::Airless | AtmosphereClass::Trace
+        ));
+        assert!(props.surf_pressure <= 90.0);
+    }
+
+    #[test]
+    fn atmosphere_classifies_hot_volatile_world_as_steam_or_worse() {
+        let _guard = test_rng_guard();
+        seed_rng(103);
+        let star = Star {
+            luminosity_in_sols: 1.4,
+            r_ecosphere: 1.18,
+            r_greenhouse: 1.8,
+            ..test_star()
+        };
+        let body = test_body(0.45, 6.0e-6, 7_200.0, Some(formation_inputs(420.0, 0.30, 0.25, 0.02)));
+
+        let props = compute_enviro_properties_for_body(&body, &star);
+        assert!(matches!(
+            props.atmosphere_class,
+            AtmosphereClass::Steam | AtmosphereClass::Corrosive | AtmosphereClass::Insidious
+        ));
+        assert!(props.surf_pressure >= 1500.0);
+        assert!(props.cloud_cover >= 0.5);
+    }
+
+    #[test]
+    fn atmosphere_classifies_gas_envelope_world_as_h2_rich_or_gas_giant() {
+        let _guard = test_rng_guard();
+        seed_rng(104);
+        let star = test_star();
+        let body = test_body(1.8, 1.2e-5, 24_000.0, Some(formation_inputs(150.0, 0.04, 0.10, 0.55)));
+
+        let props = compute_enviro_properties_for_body(&body, &star);
+
+        assert!(matches!(
+            props.atmosphere_class,
+            AtmosphereClass::H2Rich | AtmosphereClass::GasGiant
+        ));
+        assert!(props.cloud_cover >= 0.5);
+    }
+
+    #[test]
+    fn atmosphere_classifies_extreme_greenhouse_world_as_corrosive_family() {
+        let _guard = test_rng_guard();
+        seed_rng(105);
+        let star = Star {
+            luminosity_in_sols: 2.5,
+            r_ecosphere: 1.58,
+            r_greenhouse: 2.2,
+            ..test_star()
+        };
+        let body = test_body(0.35, 8.0e-6, 7_500.0, Some(formation_inputs(1_000.0, 0.02, 0.30, 0.01)));
+
+        let props = compute_enviro_properties_for_body(&body, &star);
+        assert!(matches!(
+            props.atmosphere_class,
+            AtmosphereClass::Corrosive | AtmosphereClass::Insidious
+        ));
+        assert!(props.surf_temp > 500.0);
+        assert!(props.surf_pressure >= 1500.0);
+    }
 }

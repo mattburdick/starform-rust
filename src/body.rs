@@ -1,7 +1,12 @@
 // src/orbital_body.rs
 
 use crate::accretion_parameters::ACCRETION_PARAMETERS;
-use crate::{accretion_disk::AccretionDisk, consts, get_log_level, log, types::MassType};
+use crate::{
+    accretion_disk::AccretionDisk,
+    condensation::{CondensationFractions, CondensationThresholds, PlanetFormationInputs},
+    consts, get_log_level, log,
+    types::MassType,
+};
 use std::sync::{Arc, RwLock}; // Make sure to import the global reference
 
 #[derive(Debug, Clone)]
@@ -22,6 +27,7 @@ pub struct Body {
     pub critical_mass_limit: f64, // The mass at which the body begins to accrete gas
     pub orbit_zone: OrbitalZone,
     pub density_in_grams_per_cc: f64,
+    pub formation_inputs: Option<PlanetFormationInputs>,
     pub accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
 }
 impl Default for Body {
@@ -36,10 +42,84 @@ impl Default for Body {
             critical_mass_limit: 0.0,
             orbit_zone: OrbitalZone::Zone1,
             density_in_grams_per_cc: 0.0,
+            formation_inputs: None,
             accretion_disk: None, // Start without an accretion disk
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BulkPlanetClass {
+    IronRichRocky,
+    EarthLikeRocky,
+    WaterRichWorld,
+    SubNeptune,
+    GasGiant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BodyClimateClass {
+    DryRocky,
+    TemperateRocky,
+    IceRich,
+    GasEnvelope,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BulkCompositionSummary {
+    metal_fraction: f64,
+    rock_fraction: f64,
+    ice_fraction: f64,
+    gas_fraction: f64,
+    bulk_class: BulkPlanetClass,
+}
+
+impl BulkCompositionSummary {
+    fn from_formation_inputs(
+        mass_type: MassType,
+        mass_in_earth_masses: f64,
+        formation_inputs: PlanetFormationInputs,
+    ) -> Self {
+        let fractions = formation_inputs.condensation_fractions;
+        let solid_total =
+            (fractions.refractory_metal + fractions.silicate_rock + fractions.water_ice + fractions.volatile_ices)
+                .clamp(0.0, 1.0);
+        let gas_fraction = fractions.gas.clamp(0.0, 1.0);
+
+        let (metal_fraction, rock_fraction, ice_fraction) = if solid_total > 0.0 {
+            (
+                (fractions.refractory_metal / solid_total).clamp(0.0, 1.0),
+                (fractions.silicate_rock / solid_total).clamp(0.0, 1.0),
+                ((fractions.water_ice + fractions.volatile_ices) / solid_total).clamp(0.0, 1.0),
+            )
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+
+        let bulk_class = if mass_type == MassType::GasGiant {
+            BulkPlanetClass::GasGiant
+        } else if gas_fraction >= 0.5 && mass_in_earth_masses >= 1.5 {
+            BulkPlanetClass::SubNeptune
+        } else if solid_total <= 0.05 {
+            BulkPlanetClass::EarthLikeRocky
+        } else if ice_fraction >= 0.45 {
+            BulkPlanetClass::WaterRichWorld
+        } else if metal_fraction >= 0.30 {
+            BulkPlanetClass::IronRichRocky
+        } else {
+            BulkPlanetClass::EarthLikeRocky
+        };
+
+        Self {
+            metal_fraction,
+            rock_fraction,
+            ice_fraction,
+            gas_fraction,
+            bulk_class,
+        }
+    }
+}
+
 impl Body {
     /// Constructs a new `Body` instance representing a celestial object in the simulation.
     ///
@@ -83,6 +163,9 @@ impl Body {
         body.local_dust_density = body.dust_density(central_mass_in_sols);
         body.critical_mass_limit = body.critical_limit(stellar_luminosity_in_sols);
         body.orbit_zone = body.calculate_orbit_zone(stellar_luminosity_in_sols);
+        if body.mass_type != MassType::Star {
+            body.formation_inputs = Some(body.formation_inputs_from_luminosity(stellar_luminosity_in_sols));
+        }
         body.accretion_disk = accretion_disk;
 
         body
@@ -383,94 +466,16 @@ impl Body {
         }
     }
 
-    /// Calculates the radius of a spherical object given its mass and density.
-    ///
-    /// # Returns
-    /// The radius of the object in kilometers.
-    ///
-    fn calculate_radius_from_density(&self) -> f64 {
-        // Convert mass from solar masses to grams
-        let mass_in_grams = self.mass_in_sols * consts::SOLAR_MASS_IN_GRAMS;
+    fn calculate_compatibility_orbit_zone_from_temperature(temperature_k: f64) -> OrbitalZone {
+        let zone1_boundary_temperature_k = 278.0 / 4.0_f64.sqrt();
+        let zone2_boundary_temperature_k = 278.0 / 15.0_f64.sqrt();
 
-        // Calculate volume in cubic centimeters (cm³)
-        let volume_cm3 = mass_in_grams / self.density_in_grams_per_cc;
-
-        // Calculate radius in centimeters using the formula for the volume of a sphere:
-        // volume = (4/3) * π * radius³
-        // Solving for radius:
-        // radius = ((3 * volume) / (4 * π))^(1/3)
-        let radius_cm = ((3.0 * volume_cm3) / (4.0 * std::f64::consts::PI)).powf(1.0 / 3.0);
-
-        // Convert radius from centimeters to kilometers
-        radius_cm / consts::CM_PER_KM
-    }
-
-    /// Calculates the radius of a planet in kilometers using Kothari's formula.
-    ///
-    /// The mass passed in is in units of solar masses. This formula is based on
-    /// Kothari's equation from "The Internal Constitution of Planets" by Dr. D. S. Kothari,
-    /// Mon. Not. of the Royal Astronomical Society, vol 96 pp.833-843, 1936.
-    /// Specifically, this is Kothari's eq.23, which appears on page 840.
-    ///
-    /// # Returns
-    /// The radius of the planet in kilometers.
-    fn calculate_kothari_radius(&self) -> f64 {
-        // Determine atomic weight and atomic number based on zone and mass type
-        let (atomic_weight, atomic_num): (f64, f64) = match self.orbit_zone {
-            OrbitalZone::Zone1 => {
-                if self.mass_type == MassType::GasGiant {
-                    (9.5, 4.5)
-                } else {
-                    (15.0, 8.0)
-                }
-            }
-            OrbitalZone::Zone2 => {
-                if self.mass_type == MassType::GasGiant {
-                    (2.47, 2.0)
-                } else {
-                    (10.0, 5.0)
-                }
-            }
-            _ => {
-                if self.mass_type == MassType::GasGiant {
-                    (7.0, 4.0)
-                } else {
-                    (10.0, 5.0)
-                }
-            }
-        };
-
-        // Calculate temp
-        let temp = atomic_weight * atomic_num;
-        let temp = (2.0 * consts::BETA_20 * consts::SOLAR_MASS_IN_GRAMS.powf(1.0 / 3.0))
-            / (consts::A1_20 * temp.powf(1.0 / 3.0));
-
-        // Calculate temp2
-        let mut temp2 = consts::A2_20 * atomic_weight.powf(4.0 / 3.0) * consts::SOLAR_MASS_IN_GRAMS.powf(2.0 / 3.0);
-        temp2 *= self.mass_in_sols.powf(2.0 / 3.0);
-        temp2 /= consts::A1_20 * atomic_num.powf(2.0);
-        temp2 += 1.0;
-
-        // Final calculation of temp
-        (temp / temp2 * self.mass_in_sols.powf(1.0 / 3.0)) / consts::CM_PER_KM
-    }
-
-    /// Calculates the density of a planetary body based on its properties and the luminosity of its star.
-    ///
-    /// # Arguments
-    /// - `luminosity_in_sols`: The luminosity of the star (in solar units).
-    ///
-    /// # Returns
-    /// - `f64`: The calculated density of the planet in units of grams/cc
-    fn calculate_empirical_density(&self, luminosity_in_sols: f64) -> f64 {
-        let temp = self.mass_in_earth_masses().powf(1.0 / 8.0);
-        let temp2 = luminosity_in_sols.sqrt();
-        let temp = temp * (temp2 / self.a).powf(0.25);
-
-        if self.mass_type == MassType::GasGiant {
-            temp * 1.2
+        if temperature_k > zone1_boundary_temperature_k {
+            OrbitalZone::Zone1
+        } else if temperature_k > zone2_boundary_temperature_k {
+            OrbitalZone::Zone2
         } else {
-            temp * 5.5
+            OrbitalZone::Zone3
         }
     }
 
@@ -492,38 +497,363 @@ impl Body {
         mass_in_grams / volume_in_cc
     }
 
-    /// Initializes the planetary object's properties based on its mass type and the luminosity of its star.
-    ///
-    /// # Arguments
-    /// - `luminosity_in_sols`: The luminosity of the star in solar units.
-    ///
-    /// # Description
-    /// This function sets up key properties of a planetary object:
-    /// 1. Determines the orbit zone of the planet based on the star's luminosity.
-    /// 2. Calculates the planet's density and radius differently depending on whether the planet is a gas giant or not:
-    ///    - **Gas Giant**:
-    ///      - Uses empirical density calculations to estimate the density in grams per cubic centimeter.
-    ///      - Computes the radius in kilometers based on the calculated density.
-    ///    - **Non-Gas Giant**:
-    ///      - Determines the radius using the Kothari equation.
-    ///      - Derives the density based on the calculated volume.
-    ///
-    /// # Modifies
-    /// - `self.orbit_zone`: Sets the orbital zone classification of the planet.
-    /// - `self.density_in_grams_per_cc`: Updates the density of the planet.
-    /// - `self.radius_in_km`: Updates the radius of the planet.
-    ///
-    /// # Notes
-    /// - Ensure that the planetary object has its `mass_type` field correctly set before calling this function.
-    pub fn initialize(&mut self, luminosity_in_sols: f64) {
-        self.orbit_zone = self.calculate_orbit_zone(luminosity_in_sols);
+    fn formation_inputs_from_luminosity(&self, luminosity_in_sols: f64) -> PlanetFormationInputs {
+        let orbital_radius_au = self.a.max(0.01);
+        let reference_temperature_k = 278.0 * luminosity_in_sols.max(0.01).powf(0.25);
+        let temperature_k = reference_temperature_k / orbital_radius_au.powf(0.5);
+        let condensation_fractions =
+            CondensationFractions::from_temperature(temperature_k, CondensationThresholds::default(), 25.0);
 
-        if self.mass_type == MassType::GasGiant {
-            self.density_in_grams_per_cc = self.calculate_empirical_density(luminosity_in_sols);
-            self.radius_in_km = self.calculate_radius_from_density();
-        } else {
-            self.radius_in_km = self.calculate_kothari_radius();
-            self.density_in_grams_per_cc = self.calculate_density_from_volume();
+        PlanetFormationInputs {
+            temperature_k,
+            condensation_fractions,
         }
+    }
+
+    pub(crate) fn climate_class(&self) -> Option<BodyClimateClass> {
+        if self.mass_type == MassType::Star {
+            return None;
+        }
+
+        let formation_inputs = self.formation_inputs?;
+        let fractions = formation_inputs.condensation_fractions;
+        let ice_fraction = (fractions.water_ice + fractions.volatile_ices).clamp(0.0, 1.0);
+        let thresholds = CondensationThresholds::default();
+        let gas_rich =
+            self.mass_type == MassType::GasGiant || (fractions.gas >= 0.5 && self.mass_in_earth_masses() >= 1.5);
+
+        if gas_rich {
+            Some(BodyClimateClass::GasEnvelope)
+        } else if ice_fraction >= 0.45 {
+            Some(BodyClimateClass::IceRich)
+        } else if formation_inputs.temperature_k >= thresholds.water_ice_temp_k && ice_fraction <= 0.10 {
+            Some(BodyClimateClass::DryRocky)
+        } else {
+            Some(BodyClimateClass::TemperateRocky)
+        }
+    }
+
+    fn radius_earth_radii_to_km(radius_in_earth_radii: f64) -> f64 {
+        radius_in_earth_radii * consts::unused_constants::KM_EARTH_RADIUS
+    }
+
+    fn calculate_rocky_radius_earth_radii(mass_in_earth_masses: f64, composition_scale: f64) -> f64 {
+        let mass = mass_in_earth_masses.max(1.0e-6);
+        let base_radius = if mass <= 1.0 {
+            mass.powf(0.30)
+        } else if mass <= 8.0 {
+            mass.powf(0.27)
+        } else {
+            8.0_f64.powf(0.27) * (mass / 8.0).powf(0.22)
+        };
+
+        composition_scale * base_radius
+    }
+
+    fn calculate_sub_neptune_radius_earth_radii(mass_in_earth_masses: f64, composition: BulkCompositionSummary) -> f64 {
+        let envelope_fraction =
+            (composition.gas_fraction * (mass_in_earth_masses / 20.0).clamp(0.15, 1.0) * 0.18).clamp(0.02, 0.18);
+        let core_mass = (mass_in_earth_masses * (1.0 - envelope_fraction)).max(0.1);
+        let core_radius = Self::calculate_rocky_radius_earth_radii(core_mass, 1.0 + 0.10 * composition.ice_fraction);
+        let envelope_boost = 1.15 + 2.2 * envelope_fraction.sqrt();
+
+        (core_radius * envelope_boost).clamp(1.6, 4.8)
+    }
+
+    fn calculate_gas_giant_radius_earth_radii(mass_in_earth_masses: f64, composition: BulkCompositionSummary) -> f64 {
+        let mass = mass_in_earth_masses.max(10.0);
+        let base_radius = if mass <= 20.0 {
+            4.0 * (mass / 15.0).powf(0.15)
+        } else if mass <= 100.0 {
+            4.4 * (mass / 20.0).powf(0.35)
+        } else if mass <= 318.0 {
+            8.0 * (mass / 100.0).powf(0.28)
+        } else {
+            11.0 * (mass / 318.0).powf(-0.04)
+        };
+        let volatile_bias = 0.96 + (0.08 * composition.ice_fraction) + (0.04 * composition.gas_fraction);
+
+        (base_radius * volatile_bias).clamp(3.8, 13.5)
+    }
+
+    fn calculate_modern_radius_earth_radii(&self, composition: BulkCompositionSummary) -> f64 {
+        let mass_in_earth_masses = self.mass_in_earth_masses().max(1.0e-6);
+
+        match composition.bulk_class {
+            BulkPlanetClass::IronRichRocky => {
+                Self::calculate_rocky_radius_earth_radii(mass_in_earth_masses, 0.78 + 0.08 * composition.metal_fraction)
+            }
+            BulkPlanetClass::EarthLikeRocky => {
+                Self::calculate_rocky_radius_earth_radii(mass_in_earth_masses, 0.94 + 0.12 * composition.rock_fraction)
+            }
+            BulkPlanetClass::WaterRichWorld => {
+                Self::calculate_rocky_radius_earth_radii(mass_in_earth_masses, 1.05 + 0.15 * composition.ice_fraction)
+            }
+            BulkPlanetClass::SubNeptune => {
+                Self::calculate_sub_neptune_radius_earth_radii(mass_in_earth_masses, composition)
+            }
+            BulkPlanetClass::GasGiant => {
+                Self::calculate_gas_giant_radius_earth_radii(mass_in_earth_masses, composition)
+            }
+        }
+    }
+
+    fn initialize_modern_bulk_properties(&mut self, formation_inputs: PlanetFormationInputs) {
+        if self.mass_type == MassType::Star {
+            return;
+        }
+
+        if self.mass_in_sols <= 0.0 {
+            self.radius_in_km = 0.0;
+            self.density_in_grams_per_cc = 0.0;
+            return;
+        }
+
+        let composition = BulkCompositionSummary::from_formation_inputs(
+            self.mass_type,
+            self.mass_in_earth_masses(),
+            formation_inputs,
+        );
+        let radius_in_earth_radii = self.calculate_modern_radius_earth_radii(composition);
+
+        self.radius_in_km = Self::radius_earth_radii_to_km(radius_in_earth_radii);
+        self.density_in_grams_per_cc = self.calculate_density_from_volume();
+    }
+
+    pub fn initialize(&mut self, luminosity_in_sols: f64) {
+        let formation_inputs = self.formation_inputs_from_luminosity(luminosity_in_sols);
+        self.formation_inputs = (self.mass_type != MassType::Star).then_some(formation_inputs);
+        self.orbit_zone = self.calculate_orbit_zone(luminosity_in_sols);
+        self.initialize_modern_bulk_properties(formation_inputs);
+    }
+
+    pub fn initialize_from_formation_inputs(&mut self, formation_inputs: PlanetFormationInputs) {
+        self.formation_inputs = (self.mass_type != MassType::Star).then_some(formation_inputs);
+        self.orbit_zone = Self::calculate_compatibility_orbit_zone_from_temperature(formation_inputs.temperature_k);
+        self.initialize_modern_bulk_properties(formation_inputs);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Body, BodyClimateClass, BulkCompositionSummary, BulkPlanetClass, OrbitalZone};
+    use crate::{
+        condensation::{CondensationFractions, CondensationThresholds, PlanetFormationInputs, RegionThermalProfile},
+        consts,
+        types::MassType,
+    };
+
+    fn assert_close(left: f64, right: f64) {
+        assert!((left - right).abs() < 1.0e-12, "left={left} right={right}");
+    }
+
+    fn solar_masses_from_earth_masses(mass_in_earth_masses: f64) -> f64 {
+        mass_in_earth_masses / consts::SUN_MASS_IN_EARTH_MASSES
+    }
+
+    fn formation_inputs_at_temperature(temperature_k: f64) -> PlanetFormationInputs {
+        PlanetFormationInputs {
+            temperature_k,
+            condensation_fractions: CondensationFractions::from_temperature(
+                temperature_k,
+                CondensationThresholds::default(),
+                25.0,
+            ),
+        }
+    }
+
+    #[test]
+    fn initialize_and_formation_inputs_share_same_modern_bulk_model() {
+        let formation_inputs = RegionThermalProfile::from_host_luminosity(1.0)
+            .sample_planet_formation_inputs(1.0, CondensationThresholds::default());
+        let template = Body {
+            a: 1.0,
+            mass_in_sols: 3.0e-6,
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+        let mut legacy = template.clone();
+        let mut formation_driven = template;
+
+        legacy.initialize(1.0);
+        formation_driven.initialize_from_formation_inputs(formation_inputs);
+
+        assert!(matches!(legacy.orbit_zone, OrbitalZone::Zone1));
+        assert!(matches!(formation_driven.orbit_zone, OrbitalZone::Zone1));
+        assert_close(legacy.radius_in_km, formation_driven.radius_in_km);
+        assert_close(legacy.density_in_grams_per_cc, formation_driven.density_in_grams_per_cc);
+    }
+
+    #[test]
+    fn iron_rich_and_ice_rich_worlds_land_in_different_bulk_classes() {
+        let iron_inputs = formation_inputs_at_temperature(1_100.0);
+        let ice_inputs = formation_inputs_at_temperature(40.0);
+        let template = Body {
+            a: 1.0,
+            mass_in_sols: solar_masses_from_earth_masses(1.0),
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+        let mut iron_world = template.clone();
+        let mut ice_world = template;
+
+        let iron_summary = BulkCompositionSummary::from_formation_inputs(
+            iron_world.mass_type,
+            iron_world.mass_in_earth_masses(),
+            iron_inputs,
+        );
+        let ice_summary = BulkCompositionSummary::from_formation_inputs(
+            ice_world.mass_type,
+            ice_world.mass_in_earth_masses(),
+            ice_inputs,
+        );
+
+        iron_world.initialize_from_formation_inputs(iron_inputs);
+        ice_world.initialize_from_formation_inputs(ice_inputs);
+
+        assert_eq!(iron_summary.bulk_class, BulkPlanetClass::IronRichRocky);
+        assert_eq!(ice_summary.bulk_class, BulkPlanetClass::WaterRichWorld);
+        assert!(iron_world.radius_in_km < ice_world.radius_in_km);
+        assert!(iron_world.density_in_grams_per_cc > ice_world.density_in_grams_per_cc);
+    }
+
+    #[test]
+    fn gas_rich_planets_can_expand_into_sub_neptunes() {
+        let gas_rich_inputs = formation_inputs_at_temperature(300.0);
+        let mostly_solid_inputs = formation_inputs_at_temperature(150.0);
+        let template = Body {
+            a: 0.8,
+            mass_in_sols: solar_masses_from_earth_masses(8.0),
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+        let mut sub_neptune = template.clone();
+        let mut rocky_analog = template;
+
+        let sub_neptune_summary = BulkCompositionSummary::from_formation_inputs(
+            sub_neptune.mass_type,
+            sub_neptune.mass_in_earth_masses(),
+            gas_rich_inputs,
+        );
+        let rocky_summary = BulkCompositionSummary::from_formation_inputs(
+            rocky_analog.mass_type,
+            rocky_analog.mass_in_earth_masses(),
+            mostly_solid_inputs,
+        );
+
+        sub_neptune.initialize_from_formation_inputs(gas_rich_inputs);
+        rocky_analog.initialize_from_formation_inputs(mostly_solid_inputs);
+
+        assert_eq!(sub_neptune_summary.bulk_class, BulkPlanetClass::SubNeptune);
+        assert_eq!(rocky_summary.bulk_class, BulkPlanetClass::EarthLikeRocky);
+        assert!(sub_neptune.radius_in_km > rocky_analog.radius_in_km);
+        assert!(sub_neptune.density_in_grams_per_cc < rocky_analog.density_in_grams_per_cc);
+    }
+
+    #[test]
+    fn gas_giant_piecewise_radius_remains_category_correct() {
+        let cold_outer_inputs = formation_inputs_at_temperature(60.0);
+        let neptune_mass = Body {
+            a: 20.0,
+            mass_in_sols: solar_masses_from_earth_masses(17.0),
+            mass_type: MassType::GasGiant,
+            ..Body::default()
+        };
+        let mut neptune_like = neptune_mass.clone();
+        let mut jupiter_like = Body {
+            a: 5.2,
+            mass_in_sols: solar_masses_from_earth_masses(318.0),
+            mass_type: MassType::GasGiant,
+            ..Body::default()
+        };
+
+        neptune_like.initialize_from_formation_inputs(cold_outer_inputs);
+        jupiter_like.initialize_from_formation_inputs(cold_outer_inputs);
+
+        assert!(neptune_like.radius_in_km > 20_000.0);
+        assert!(neptune_like.radius_in_km < 40_000.0);
+        assert!(jupiter_like.radius_in_km > 60_000.0);
+        assert!(jupiter_like.radius_in_km < 90_000.0);
+        assert!(jupiter_like.radius_in_km > neptune_like.radius_in_km);
+        assert!(neptune_like.density_in_grams_per_cc > 0.5);
+        assert!(jupiter_like.density_in_grams_per_cc > 0.3);
+    }
+
+    #[test]
+    fn rocky_radius_grows_monotonically_with_mass() {
+        let formation_inputs = formation_inputs_at_temperature(150.0);
+        let mut small = Body {
+            a: 1.0,
+            mass_in_sols: solar_masses_from_earth_masses(0.5),
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+        let mut medium = Body {
+            a: 1.0,
+            mass_in_sols: solar_masses_from_earth_masses(1.0),
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+        let mut large = Body {
+            a: 1.0,
+            mass_in_sols: solar_masses_from_earth_masses(5.0),
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+
+        small.initialize_from_formation_inputs(formation_inputs);
+        medium.initialize_from_formation_inputs(formation_inputs);
+        large.initialize_from_formation_inputs(formation_inputs);
+
+        assert!(small.radius_in_km < medium.radius_in_km);
+        assert!(medium.radius_in_km < large.radius_in_km);
+        assert!(small.density_in_grams_per_cc > 0.0);
+        assert!(large.density_in_grams_per_cc > 0.0);
+    }
+
+    #[test]
+    fn formation_inputs_temperature_drives_compatibility_zone() {
+        let profile = RegionThermalProfile::from_host_luminosity(1.0);
+        let mut inner = Body {
+            a: 0.5,
+            mass_in_sols: 3.0e-6,
+            ..Body::default()
+        };
+        let mut outer = Body {
+            a: 20.0,
+            mass_in_sols: 3.0e-6,
+            ..Body::default()
+        };
+
+        inner.initialize_from_formation_inputs(
+            profile.sample_planet_formation_inputs(0.5, CondensationThresholds::default()),
+        );
+        outer.initialize_from_formation_inputs(
+            profile.sample_planet_formation_inputs(20.0, CondensationThresholds::default()),
+        );
+
+        assert!(matches!(inner.orbit_zone, OrbitalZone::Zone1));
+        assert!(matches!(outer.orbit_zone, OrbitalZone::Zone3));
+    }
+
+    #[test]
+    fn initialization_persists_formation_inputs_and_climate_class() {
+        let dry_inputs = formation_inputs_at_temperature(1_100.0);
+        let icy_inputs = formation_inputs_at_temperature(40.0);
+        let mut dry = Body {
+            a: 1.0,
+            mass_in_sols: solar_masses_from_earth_masses(1.0),
+            mass_type: MassType::Planet,
+            ..Body::default()
+        };
+        let mut icy = dry.clone();
+
+        dry.initialize_from_formation_inputs(dry_inputs);
+        icy.initialize_from_formation_inputs(icy_inputs);
+
+        assert_eq!(dry.formation_inputs, Some(dry_inputs));
+        assert_eq!(icy.formation_inputs, Some(icy_inputs));
+        assert_eq!(dry.climate_class(), Some(BodyClimateClass::DryRocky));
+        assert_eq!(icy.climate_class(), Some(BodyClimateClass::IceRich));
     }
 }
