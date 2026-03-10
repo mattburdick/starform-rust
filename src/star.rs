@@ -423,8 +423,8 @@ impl fmt::Display for Star {
             )?;
         }
 
-        writeln!(f, "Earthlike insolation at:     {:>7.3} AU", self.r_ecosphere)?;
-        writeln!(f, "Greenhouse onset inside:     {:>7.3} AU", self.r_greenhouse)?;
+        writeln!(f, "Optimistic outer HZ at:      {:>7.3} AU", self.r_ecosphere)?;
+        writeln!(f, "Recent Venus inside:         {:>7.3} AU", self.r_greenhouse)?;
         writeln!(f, "Frost line at:               {:>7.3} AU", self.r_frost_line)?;
         writeln!(f, "Soot line at:                {:>7.3} AU", self.r_soot_line)
     }
@@ -766,72 +766,60 @@ impl Star {
         }
     }
 
-    /// Calculates the radius of the ecosphere, also known as the habitable zone, for a star based on its luminosity.
-    /// The ecosphere is the region around a star where conditions might be right for liquid water to exist on the surface
-    /// of a planet, which is considered crucial for life as we know it. This function uses the square root of the star's
-    /// luminosity to estimate the distance at which a planet would need to orbit to potentially support life.
+    /// Returns the Earth-equivalent insolation distance in AU.
     ///
-    /// # Parameters
-    /// * `luminosity_in_sols` - The luminosity of the star expressed in solar luminosities (the luminosity of the sun = 1).
-    ///
-    /// # Returns
-    /// * `r_ecosphere` - The radius of the habitable zone in astronomical units (AU), where 1 AU is the average distance
-    ///   from the Earth to the Sun.
-    ///
-    /// # Example
-    /// ```rust
-    /// use starform_rust::star::Star;
-    ///
-    /// let habitable_zone_radius = Star::r_ecosphere(1.0); // For a star with the luminosity of the sun
-    /// println!("Radius of the habitable zone for solar luminosity: {}", habitable_zone_radius);
-    /// ```
-    ///
-    /// # Notes
-    /// ## Formula
-    ///
-    /// We treat `luminosity_in_sols` as the dimensionless ratio $L_*/L_\odot$.
-    /// In AU, the ecosphere (Earthlike insolation) radius is:
-    ///
-    /// $$r_{ecosphere} = \sqrt{\frac{L_*}{L_\odot}}\ \mathrm{AU}$$
-    ///
-    /// ## Notes
-    /// This is a simplified scaling for *equal stellar flux*. Detailed habitable-zone boundaries depend on atmospheric
-    /// composition and feedbacks; this function is used as a convenient reference distance for the rest of the model.
-    pub fn r_ecosphere(luminosity_in_sols: f64) -> f64 {
-        luminosity_in_sols.sqrt()
+    /// This preserves the classic `sqrt(L)` normalization that the climate/effective-temperature
+    /// code expects, even though the public habitable-zone fields now use Kopparapu optimistic
+    /// inner/outer limits.
+    pub fn earth_equivalent_insolation_au(luminosity_in_sols: f64) -> f64 {
+        luminosity_in_sols.max(0.0).sqrt()
     }
 
-    /// Calculates the **inner** radius at which a strong (runaway) greenhouse effect is expected, based on the
-    /// ecosphere reference distance.
-    ///
-    /// In this codebase, `r_greenhouse` is used as a threshold for whether a planet in the inner orbital zone is
-    /// expected to be in a greenhouse state (see `enviro::grnhouse`). With the default constant, this ends up slightly
-    /// **inside** `r_ecosphere` and acts as an approximate "too-hot" boundary.
-    ///
-    /// # Parameters
-    /// * `r_ecosphere` - The radius of the ecosphere, typically defined as the distance from a star at which a planet
-    ///   can maintain liquid water on its surface under Earth-like conditions, measured in astronomical units (AU).
-    ///
-    /// # Returns
-    /// * `r_greenhouse` - The inner greenhouse threshold radius in AU.
-    ///
-    /// # Example
-    /// ```rust
-    /// use starform_rust::star::Star;
-    ///
-    /// let r_ecosphere = 1.0; // Ecosphere radius in AU
-    /// let r_greenhouse = Star::r_greenhouse(r_ecosphere); // Calculate the greenhouse radius
-    /// println!("Greenhouse radius for an ecosphere of 1 AU: {}", r_greenhouse);
-    /// ```
-    ///
-    /// # Notes
-    /// ## Formula
-    ///
-    /// $$r_{greenhouse} = r_{ecosphere} \cdot C_{gh}$$
-    ///
-    /// where $C_{gh}$ is `consts::GREENHOUSE_EFFECT_CONST`.
-    pub fn r_greenhouse(r_ecosphere: f64) -> f64 {
-        r_ecosphere * consts::GREENHOUSE_EFFECT_CONST
+    fn sanitized_kopparapu_temperature_in_kelvin(temperature_in_kelvin: f64) -> f64 {
+        if temperature_in_kelvin.is_finite() {
+            temperature_in_kelvin.clamp(2600.0, 7200.0)
+        } else {
+            5780.0
+        }
+    }
+
+    fn kopparapu_effective_flux(temperature_in_kelvin: f64, seff_sun: f64, a: f64, b: f64, c: f64, d: f64) -> f64 {
+        let temperature_offset = Self::sanitized_kopparapu_temperature_in_kelvin(temperature_in_kelvin) - 5780.0;
+        seff_sun
+            + a * temperature_offset
+            + b * temperature_offset.powi(2)
+            + c * temperature_offset.powi(3)
+            + d * temperature_offset.powi(4)
+    }
+
+    fn kopparapu_distance_au(luminosity_in_sols: f64, effective_flux: f64) -> f64 {
+        if effective_flux <= 0.0 {
+            0.0
+        } else {
+            (luminosity_in_sols.max(0.0) / effective_flux).sqrt()
+        }
+    }
+
+    /// Calculates the optimistic **outer** habitable-zone radius in AU using the
+    /// Kopparapu et al. early-Mars limit.
+    pub fn r_ecosphere(luminosity_in_sols: f64, temperature_in_kelvin: f64) -> f64 {
+        let effective_flux = Self::kopparapu_effective_flux(
+            temperature_in_kelvin,
+            0.3207,
+            5.5471e-5,
+            1.5265e-9,
+            -2.874e-12,
+            -5.011e-16,
+        );
+        Self::kopparapu_distance_au(luminosity_in_sols, effective_flux)
+    }
+
+    /// Calculates the optimistic **inner** habitable-zone radius in AU using the
+    /// Kopparapu et al. recent-Venus limit.
+    pub fn r_greenhouse(luminosity_in_sols: f64, temperature_in_kelvin: f64) -> f64 {
+        let effective_flux =
+            Self::kopparapu_effective_flux(temperature_in_kelvin, 1.776, 2.136e-4, 2.533e-8, -1.332e-11, -3.097e-15);
+        Self::kopparapu_distance_au(luminosity_in_sols, effective_flux)
     }
 
     /// Computes the orbital distance (in AU) at which a body's radiative **equilibrium temperature** equals a target
@@ -977,8 +965,8 @@ impl Star {
         self.temperature_in_kelvin = Star::temperature_in_kelvin(self.luminosity_in_sols, self.radius_in_au);
         self.main_seq_life = Star::main_seq_life(self.mass_in_sols, self.luminosity_in_sols);
         self.age = Star::age(self.mass_in_sols, self.luminosity_in_sols);
-        self.r_ecosphere = Star::r_ecosphere(self.luminosity_in_sols);
-        self.r_greenhouse = Star::r_greenhouse(self.r_ecosphere);
+        self.r_ecosphere = Star::r_ecosphere(self.luminosity_in_sols, self.temperature_in_kelvin);
+        self.r_greenhouse = Star::r_greenhouse(self.luminosity_in_sols, self.temperature_in_kelvin);
 
         // Condensation lines (simple luminosity scaling, Solar-calibrated).
         // These are intended as quick reference distances for UI and disk modeling.
@@ -1197,5 +1185,21 @@ mod tests {
         let soot = Star::soot_line_au_from_star_params(r_sun_au, t_sun_k);
         // With 700 K and A=0, this is close to ~0.15 AU.
         assert!((soot - 0.15).abs() < 0.02);
+    }
+
+    #[test]
+    fn kopparapu_optimistic_habitable_zone_matches_solar_calibration() {
+        let t_sun_k = consts::SOLAR_TEMPERATURE_IN_KELVIN;
+
+        let greenhouse = Star::r_greenhouse(1.0, t_sun_k);
+        let ecosphere = Star::r_ecosphere(1.0, t_sun_k);
+
+        assert!((greenhouse - 0.75).abs() < 0.01);
+        assert!((ecosphere - 1.766).abs() < 0.02);
+    }
+
+    #[test]
+    fn earth_equivalent_insolation_radius_preserves_sqrt_l_scaling() {
+        assert!((Star::earth_equivalent_insolation_au(1.44) - 1.2).abs() < 1.0e-12);
     }
 }

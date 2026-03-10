@@ -11,6 +11,10 @@ use crate::random::about;
 use crate::star::Star;
 use crate::types::MassType;
 
+fn earth_equivalent_insolation_radius_au(star: &Star) -> f64 {
+    Star::earth_equivalent_insolation_au(star.luminosity_in_sols)
+}
+
 /// Environmental properties for a planet/body.
 ///
 /// These values mirror the fields used in the original C implementation and are
@@ -31,6 +35,10 @@ pub struct EnviroProperties {
     pub cloud_cover: f64,
     pub ice_cover: f64,
     pub albedo: f64,
+    /// Radiative-equilibrium temperature before greenhouse/climate warming.
+    pub effective_temp_k: f64,
+    /// Additional warming added on top of `effective_temp_k` by the surface model.
+    pub greenhouse_rise_k: f64,
     pub surf_temp: f64,
     /// Compact atmosphere label used by tests and future UI/game-facing presentation.
     pub atmosphere_class: AtmosphereClass,
@@ -225,7 +233,11 @@ fn build_atmosphere_signals(
 ) -> AtmosphereSignals {
     let (water_inventory, volatile_inventory_fraction, gas_fraction) = inferred_composition_fractions(body);
     let climate_class = body.climate_class();
-    let eq_temp_k = eff_temp(star.r_ecosphere, body.a, seed_albedo_for_body(body));
+    let eq_temp_k = eff_temp(
+        earth_equivalent_insolation_radius_au(star),
+        body.a,
+        seed_albedo_for_body(body),
+    );
     let escape_velocity = escape_vel(body.mass_in_sols, radius_km);
     let rms_velocity = rms_vel(env::MOL_NITROGEN, body.a, star.luminosity_in_sols);
     let retention_strength = if rms_velocity > 0.0 {
@@ -690,24 +702,26 @@ fn apply_classified_surface_model(
     climate_class: Option<BodyClimateClass>,
     water_inventory: f64,
     greenhouse_effect: bool,
-    r_ecosphere: f64,
+    earth_equivalent_insolation_radius_au: f64,
 ) {
     let mut albedo = base_albedo_for_class(atmosphere_class, climate_class);
     let mut hydrosphere = 0.0;
     let mut cloud_cover = 0.0;
     let mut ice_cover = 0.0;
-    let mut surf_temp = eff_temp(r_ecosphere, props.a, albedo);
+    let mut effective_temp = eff_temp(earth_equivalent_insolation_radius_au, props.a, albedo);
+    let mut greenhouse_rise = 0.0;
+    let mut surf_temp = effective_temp;
 
     for _ in 0..2 {
-        let effective_temp = eff_temp(r_ecosphere, props.a, albedo);
-        let greenhouse = greenhouse_adjustment_k(
+        effective_temp = eff_temp(earth_equivalent_insolation_radius_au, props.a, albedo);
+        greenhouse_rise = greenhouse_adjustment_k(
             atmosphere_class,
             props.surf_pressure,
             effective_temp,
             water_inventory,
             greenhouse_effect,
         );
-        surf_temp = effective_temp + greenhouse;
+        surf_temp = effective_temp + greenhouse_rise;
         hydrosphere = surface_water_fraction(
             atmosphere_class,
             climate_class,
@@ -737,6 +751,8 @@ fn apply_classified_surface_model(
     props.cloud_cover = cloud_cover;
     props.ice_cover = ice_cover.min(hydrosphere);
     props.albedo = albedo;
+    props.effective_temp_k = effective_temp.max(0.0);
+    props.greenhouse_rise_k = greenhouse_rise.max(0.0);
     props.surf_temp = surf_temp.max(0.0);
     props.atmosphere_class = atmosphere_class;
 }
@@ -808,7 +824,7 @@ pub fn compute_enviro_properties_for_body(body: &Body, star: &Star) -> EnviroPro
         signals.climate_class,
         signals.water_inventory,
         greenhouse_effect,
-        star.r_ecosphere,
+        earth_equivalent_insolation_radius_au(star),
     );
     props
 }
@@ -1154,10 +1170,12 @@ pub fn ice_fraction(hyd_fraction: f64, mut surf_temp: f64) -> f64 {
     }
 }
 
-/// This is Fogg's eq.19. The ecosphere radius is given in AU, the orbital
-/// radius in AU, and the temperature returned is in Kelvin.
-pub fn eff_temp(ecosphere_radius: f64, orb_radius: f64, albedo: f64) -> f64 {
-    (ecosphere_radius / orb_radius).sqrt() * ((1.0 - albedo) / 0.7).powf(0.25) * env::EARTH_EFFECTIVE_TEMP
+/// This is Fogg's eq.19. The Earth-equivalent insolation radius is given in AU,
+/// the orbital radius in AU, and the temperature returned is in Kelvin.
+pub fn eff_temp(earth_equivalent_insolation_radius_au: f64, orb_radius: f64, albedo: f64) -> f64 {
+    (earth_equivalent_insolation_radius_au / orb_radius).sqrt()
+        * ((1.0 - albedo) / 0.7).powf(0.25)
+        * env::EARTH_EFFECTIVE_TEMP
 }
 
 /// This is Fogg's eq.20, and is also Hart's eq.20 in his "Evolution of
@@ -1280,7 +1298,7 @@ pub fn opacity(molecular_weight: f64, surf_pressure: f64) -> f64 {
 /// triple-point pressure (6.1 mbar), or a partial polar-cap fraction (Fogg
 /// eq.24) when above freezing. The liquid fraction used for albedo is derived
 /// as `(hydrosphere - ice_cover).max(0.0)`.
-pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
+pub fn iterate_surface_temp(planet: &mut EnviroProperties, earth_equivalent_insolation_radius_au: f64) {
     // Triple-point pressure of water in millibars. Below this, liquid water
     // cannot exist on the surface regardless of temperature.
     const TRIPLE_POINT_PRESSURE_MB: f64 = 6.1;
@@ -1294,8 +1312,8 @@ pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
     let mut new_temp = 0.0;
     let mut counter = 0;
 
-    loop {
-        let mut effective_temp = eff_temp(r_ecosphere, planet.a, albedo);
+    let (final_effective_temp, final_greenhouse_rise) = loop {
+        let mut effective_temp = eff_temp(earth_equivalent_insolation_radius_au, planet.a, albedo);
         let previous_temp = if counter == 0 { effective_temp } else { new_temp };
 
         let mut greenhs_rise = green_rise(optical_depth, effective_temp, planet.surf_pressure);
@@ -1327,14 +1345,16 @@ pub fn iterate_surface_temp(planet: &mut EnviroProperties, r_ecosphere: f64) {
         counter += 1;
 
         if (new_temp - previous_temp).abs() <= 1.0 || counter >= env::TEMP_ITERATION_LIMIT {
-            break;
+            break (effective_temp, greenhs_rise);
         }
-    }
+    };
 
     planet.hydrosphere = water;
     planet.cloud_cover = clouds;
     planet.ice_cover = ice;
     planet.albedo = albedo;
+    planet.effective_temp_k = final_effective_temp.max(0.0);
+    planet.greenhouse_rise_k = final_greenhouse_rise.max(0.0);
     planet.surf_temp = new_temp;
 }
 
@@ -1464,7 +1484,10 @@ mod tests {
         ));
         assert!(props.surf_pressure >= 710.0);
         assert!(props.surf_pressure <= 1490.0);
+        assert!(props.effective_temp_k.is_finite());
+        assert!(props.greenhouse_rise_k.is_finite());
         assert!(props.surf_temp.is_finite());
+        assert!((props.effective_temp_k + props.greenhouse_rise_k - props.surf_temp).abs() <= 1.0e-6);
     }
 
     #[test]
@@ -1537,6 +1560,7 @@ mod tests {
             props.atmosphere_class,
             AtmosphereClass::Corrosive | AtmosphereClass::Insidious
         ));
+        assert!(props.greenhouse_rise_k > 0.0);
         assert!(props.surf_temp > 500.0);
         assert!(props.surf_pressure >= 1500.0);
     }
