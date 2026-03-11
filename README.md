@@ -30,6 +30,48 @@ Science has moved on since the original research paper that spawned Starform.
 If you want a project that aims to reflect **more up-to-date science**, check out StarForge:
 [starforge.space](https://starforge.space/index.html)
 
+## Atmosphere modeling notes
+
+Recent atmosphere work in `starform-rust` is being guided by a small research pass over the PDFs in
+`docs/other/`, especially the papers listed below.
+
+The main takeaway is that interesting planetary atmospheres should not be treated as a single
+pressure proxy or an all-or-nothing label. A better approximation is to model atmospheres as a
+retained gas mixture shaped by:
+
+- formation location and volatile delivery
+- condensation chemistry in the protoplanetary disk
+- the difference between primordial `H2/He` envelopes and secondary atmospheres
+- atmospheric escape and photoevaporation
+- outgassing, water loss, and greenhouse/irradiation state
+
+One concrete issue this work is addressing is false-airless planets. The older Starform-style logic
+can effectively collapse a world to "airless" if it cannot retain `N2`, even when it should still be
+able to hold onto heavier gases such as `CO2`, `SO2`, `H2O`, or `Ar`. The updated direction in this
+crate is therefore:
+
+- use species-by-species retention rather than a single `N2` gate
+- derive pressure from retained atmospheric inventory
+- expose gas percentages and hazard traits alongside compact atmosphere classes
+- preserve the existing `AtmosphereClass` as a presentation layer, not the only internal model
+
+This remains a conservative, game-friendly approximation rather than a full photochemistry solver,
+but it should produce more varied results such as:
+
+- thin `CO2` atmospheres on marginal rocky worlds
+- dense `CO2` greenhouse atmospheres on hot volatile-rich planets
+- `N2`-dominated temperate atmospheres with water vapor and oxygen admixtures
+- hydrogen-rich mini-Neptune/sub-Neptune envelopes
+- sulfurous or corrosive hot atmospheres
+
+### Papers consulted for the atmosphere update
+
+- `docs/other/Formation_Orbital_and_Internal_Evolution.pdf`
+- `docs/other/Planetary_Dynamics_and_Habitable_Planet.pdf`
+- `docs/other/Academia.edu_Bundle_-_Terrestrial_planet_formation_in_extra_so/most_similar_papers_to_this_one/Astrophysics_of_Planet_Formation.pdf`
+- `docs/other/Academia.edu_Bundle_-_Terrestrial_planet_formation_in_extra_so/papers_cited_by_this_one/A_new_family_of_planets_Ocean_Planets.pdf`
+- `docs/other/Academia.edu_Bundle_-_Terrestrial_planet_formation_in_extra_so/most_similar_papers_to_this_one/Chemistry_in_an_Evolving_Protoplanetary.pdf`
+
 ## Quickstart
 
 ### Build
