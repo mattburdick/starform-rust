@@ -278,14 +278,14 @@ impl AccretionDisk {
 
     // Calculates the outer limit of gas & dust accretion disks from a planet or star
     fn stell_dust_limit(central_mass_in_sols: f64, dist_from_primary: f64, central_mass_type: MassType) -> f64 {
-        let mut outer_limit = 200.0 * central_mass_in_sols.powf(1.0 / 3.0);
+        let mut outer_limit = 200.0 * central_mass_in_sols.cbrt();
         if central_mass_type == MassType::Star {
             return outer_limit;
         }
 
         // Otherwise the central mass is a planet
         outer_limit /= 125.0;
-        let primary_effect = dist_from_primary.powf(2.0);
+        let primary_effect = dist_from_primary.powi(2);
         if primary_effect <= 1.0 {
             outer_limit *= primary_effect;
         }
@@ -340,7 +340,7 @@ impl AccretionDisk {
         let height = xa + xp;
 
         // Calculating the volume
-        std::f32::consts::PI as f64 * height * (r_outer.powf(2.0) - r_inner.powf(2.0))
+        std::f32::consts::PI as f64 * height * (r_outer.powi(2) - r_inner.powi(2))
     }
 
     /// Determines if a new body is dynamically overpacked with any existing
@@ -396,7 +396,7 @@ impl AccretionDisk {
         }
 
         let average_a = (inner.a + outer.a) * 0.5;
-        let mutual_hill_radius = average_a * (combined_mass_solar / (3.0 * host_mass_solar)).powf(1.0 / 3.0);
+        let mutual_hill_radius = average_a * (combined_mass_solar / (3.0 * host_mass_solar)).cbrt();
         let required_spacing = consts::MIN_PLANETARY_MUTUAL_HILL_SPACING * mutual_hill_radius;
         let actual_spacing = (outer.a - inner.a).max(0.0);
 
@@ -908,10 +908,10 @@ impl AccretionDisk {
         // Choose the lower of the Roche limit for a fluid satellite and a limit due to the luminosity of the central star (if any)
         let mut planet_inner_bound = primary.roche_limit_in_au();
         if luminosity_in_sols > 0.0 {
-            planet_inner_bound = planet_inner_bound.min(0.3 * primary.mass_in_sols.powf(1.0 / 3.0));
+            planet_inner_bound = planet_inner_bound.min(0.3 * primary.mass_in_sols.cbrt());
         }
 
-        let planet_outer_bound = 50.0 * primary.mass_in_sols.powf(1.0 / 3.0);
+        let planet_outer_bound = 50.0 * primary.mass_in_sols.cbrt();
 
         Self::new_with_planet_bounds(
             primary.mass_in_sols,

@@ -38,7 +38,7 @@ impl RegionThermalProfile {
         let luminosity = host_luminosity_solar.max(0.01);
         Self {
             host_luminosity_solar,
-            reference_temperature_k: 278.0 * luminosity.powf(0.25),
+            reference_temperature_k: 278.0 * luminosity.sqrt().sqrt(),
             radial_exponent: 0.5,
             transition_width_k: 25.0,
         }

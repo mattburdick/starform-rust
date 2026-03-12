@@ -253,7 +253,7 @@ impl Body {
         let rp = a * (1.0 - e); // perihelion distance (closest point to the star)
 
         // Calculate the distance from the mass where matter is affected by its gravity. This depends on its distance from the star.
-        let mass_influence = (mass / (1.0 + mass)).powf(0.25);
+        let mass_influence = (mass / (1.0 + mass)).sqrt().sqrt();
         let xa = ra * mass_influence;
         let xp = rp * mass_influence;
 
@@ -277,7 +277,9 @@ impl Body {
     ///
     pub fn critical_limit(&self, stellar_luminosity_in_sols: f64) -> f64 {
         let perihelion = self.a - self.a * self.e;
-        consts::B * (perihelion * stellar_luminosity_in_sols.sqrt()).powf(-0.75)
+        let base = perihelion * stellar_luminosity_in_sols.sqrt();
+        let base_sqrt = base.sqrt();
+        consts::B / (base_sqrt * base_sqrt.sqrt())
     }
 
     /// Calculates the dust density at a given orbital radius around a star.
@@ -306,7 +308,7 @@ impl Body {
         let params = ACCRETION_PARAMETERS.lock().unwrap();
 
         // Use the globally stored parameters
-        params.dust_density_coefficient * stellar_mass.sqrt() * f64::exp(-consts::ALPHA * self.a.powf(1.0 / consts::N))
+        params.dust_density_coefficient * stellar_mass.sqrt() * f64::exp(-consts::ALPHA * self.a.cbrt())
     }
 
     /// Calculates the Roche limit of a primary body for a fluid satellite.
@@ -387,7 +389,7 @@ impl Body {
             return 0.0;
         }
 
-        self.a * (self.mass_in_sols / (3.0 * primary_mass_in_sols)).powf(1.0 / 3.0)
+        self.a * (self.mass_in_sols / (3.0 * primary_mass_in_sols)).cbrt()
     }
 
     /// Performs a collision between two celestial bodies, updating their orbital and physical properties.
@@ -412,10 +414,10 @@ impl Body {
             (self.mass_in_sols + other.mass_in_sols) / ((self.mass_in_sols / self.a) + (other.mass_in_sols / other.a));
 
         // Calculate new eccentricity 'e'
-        let angular_momentum = self.mass_in_sols * self.a.sqrt() * (1.0 - self.e.powf(2.0)).sqrt()
-            + other.mass_in_sols * other.a.sqrt() * (1.0 - other.e.powf(2.0)).sqrt();
+        let angular_momentum = self.mass_in_sols * self.a.sqrt() * (1.0 - self.e.powi(2)).sqrt()
+            + other.mass_in_sols * other.a.sqrt() * (1.0 - other.e.powi(2)).sqrt();
         let new_angular_momentum = angular_momentum / ((self.mass_in_sols + other.mass_in_sols) * new_a.sqrt());
-        let new_e_squared = 1.0 - new_angular_momentum.powf(2.0);
+        let new_e_squared = 1.0 - new_angular_momentum.powi(2);
         let new_e = if !(0.0..1.0).contains(&new_e_squared) {
             0.0
         } else {
@@ -505,7 +507,7 @@ impl Body {
         let radius_in_cm = self.radius_in_km * consts::CM_PER_KM;
 
         // Calculate volume of the sphere
-        let volume_in_cc = (4.0 * std::f64::consts::PI * radius_in_cm.powf(3.0)) / 3.0;
+        let volume_in_cc = (4.0 * std::f64::consts::PI * radius_in_cm.powi(3)) / 3.0;
 
         // Return the density
         mass_in_grams / volume_in_cc
@@ -513,8 +515,8 @@ impl Body {
 
     fn formation_inputs_from_luminosity(&self, luminosity_in_sols: f64) -> PlanetFormationInputs {
         let orbital_radius_au = self.a.max(0.01);
-        let reference_temperature_k = 278.0 * luminosity_in_sols.max(0.01).powf(0.25);
-        let temperature_k = reference_temperature_k / orbital_radius_au.powf(0.5);
+        let reference_temperature_k = 278.0 * luminosity_in_sols.max(0.01).sqrt().sqrt();
+        let temperature_k = reference_temperature_k / orbital_radius_au.sqrt();
         let condensation_fractions =
             CondensationFractions::from_temperature(temperature_k, CondensationThresholds::default(), 25.0);
 

@@ -1399,7 +1399,7 @@ impl StarSystem {
                         planetary_regions.push(region);
                     } else {
                         let aggregate = Self::hierarchy_node_aggregate(stars, hierarchy, node_index);
-                        let default_outer_au = 50.0 * aggregate.total_mass_solar.powf(1.0 / 3.0);
+                        let default_outer_au = 50.0 * aggregate.total_mass_solar.cbrt();
                         let outer_bounds = Self::hierarchy_parent_binary_context(stars, hierarchy, node_index)
                             .map(|parent_context| {
                                 Self::circumstellar_outer_bounds(
@@ -1864,8 +1864,8 @@ impl StarSystem {
     ) -> Option<PlanetaryRegion> {
         let host_mass_solar = primary.mass_in_sols + secondary.mass_in_sols;
         let host_luminosity_solar = primary.luminosity_in_sols + secondary.luminosity_in_sols;
-        let default_inner_au = 0.3 * host_mass_solar.powf(1.0 / 3.0);
-        let default_outer_au = 50.0 * host_mass_solar.powf(1.0 / 3.0);
+        let default_inner_au = 0.3 * host_mass_solar.cbrt();
+        let default_outer_au = 50.0 * host_mass_solar.cbrt();
         let stability_inner_au =
             Self::circumbinary_stability_inner_au(binary.semi_major_axis_au, binary.eccentricity, binary.mass_ratio);
         let truncation_inner_au =
@@ -1917,8 +1917,8 @@ impl StarSystem {
     ) -> Option<PlanetaryRegion> {
         let host_mass_solar = primary.mass_in_sols + secondary.mass_in_sols;
         let host_luminosity_solar = primary.luminosity_in_sols + secondary.luminosity_in_sols;
-        let default_inner_au = 0.3 * host_mass_solar.powf(1.0 / 3.0);
-        let default_outer_au = 50.0 * host_mass_solar.powf(1.0 / 3.0);
+        let default_inner_au = 0.3 * host_mass_solar.cbrt();
+        let default_outer_au = 50.0 * host_mass_solar.cbrt();
         let stability_inner_au = Self::circumbinary_stability_inner_au(
             inner_binary.semi_major_axis_au,
             inner_binary.eccentricity,
@@ -2025,7 +2025,7 @@ impl StarSystem {
         }
 
         let average_a = ((inner.a + outer.a) * 0.5).max(0.0);
-        let mutual_hill_radius = average_a * (combined_mass_solar / (3.0 * host_mass_solar)).powf(1.0 / 3.0);
+        let mutual_hill_radius = average_a * (combined_mass_solar / (3.0 * host_mass_solar)).cbrt();
         let required_spacing = MIN_PLANETARY_MUTUAL_HILL_SPACING * mutual_hill_radius;
         let actual_spacing = (outer.a - inner.a).max(0.0);
 
@@ -2851,7 +2851,7 @@ mod tests {
         )
         .expect("expected hierarchical circumbinary region");
 
-        let default_outer_au = 50.0 * (primary.mass_in_sols + secondary.mass_in_sols).powf(1.0 / 3.0);
+        let default_outer_au = 50.0 * (primary.mass_in_sols + secondary.mass_in_sols).cbrt();
         assert!(region.stable_region.outer_au < default_outer_au);
         assert!(region.stable_region.inner_au < region.stable_region.outer_au);
     }

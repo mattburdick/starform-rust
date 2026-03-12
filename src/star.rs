@@ -653,7 +653,7 @@ impl Star {
     /// the `consts` module to relate AU to solar radii and to scale the temperature to
     /// solar standards respectively.
     pub fn temperature_in_kelvin(luminosity_in_sols: f64, radius_in_au: f64) -> f64 {
-        let temperature_in_sols = luminosity_in_sols.powf(0.25) / (radius_in_au / consts::SOLAR_RADII_PER_AU).powf(0.5);
+        let temperature_in_sols = luminosity_in_sols.sqrt().sqrt() / (radius_in_au / consts::SOLAR_RADII_PER_AU).sqrt();
         temperature_in_sols * consts::SOLAR_TEMPERATURE_IN_KELVIN
     }
 
