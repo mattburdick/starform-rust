@@ -172,3 +172,17 @@ pub fn generate_star_system_with_config(loglevel: u8, generation_config: &System
     set_all_accretion_parameters(generation_config.accretion);
     StarSystem::new_with_config(generation_config)
 }
+
+/// Prepare stars from a generation config **without** running accretion.
+///
+/// Sets the RNG seed, configures accretion parameters, and creates all
+/// configured stars — but does NOT run the accretion loop on their disks.
+/// The RNG is advanced identically to the generation path up to (but not
+/// including) accretion, so callers can later drive accretion via
+/// `AccretionStepper` and assemble via `StarSystem::from_stars` to get
+/// the same result.
+pub fn prepare_stars_with_config(loglevel: u8, generation_config: &SystemGenerationConfig) -> Vec<star::Star> {
+    set_log_level!(loglevel);
+    set_all_accretion_parameters(generation_config.accretion);
+    StarSystem::prepare_stars_from_config(generation_config)
+}

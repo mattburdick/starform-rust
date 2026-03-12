@@ -49,6 +49,22 @@ impl Band {
         }
     }
 
+    pub fn dust_present(&self) -> bool {
+        self.dust_present
+    }
+
+    pub fn gas_present(&self) -> bool {
+        self.gas_present
+    }
+
+    pub fn inner_edge(&self) -> f64 {
+        self.inner_edge
+    }
+
+    pub fn outer_edge(&self) -> f64 {
+        self.outer_edge
+    }
+
     fn can_merge_with(&self, other: &Band) -> bool {
         self.dust_present == other.dust_present && self.gas_present == other.gas_present
     }
@@ -87,6 +103,44 @@ struct EmbryoCell {
     orbital_eccentricity: f64,
     inner_edge_au: f64,
     outer_edge_au: f64,
+}
+
+//---------------------------  AccretionStepResult  ---------------------------
+
+/// Record of a single collision that occurred during coalescence.
+#[derive(Debug, Clone)]
+pub struct CollisionRecord {
+    /// Semi-major axis of the accreting body before the collision.
+    pub body_pre_a_au: f64,
+    /// Whether the accreting body was a gas giant before the collision.
+    pub body_was_gas_giant: bool,
+    /// Radius of the accreting body in km before the collision.
+    pub body_radius_in_km: f64,
+    /// Semi-major axis of the absorbed neighbor before the collision.
+    pub neighbor_pre_a_au: f64,
+    /// Whether the absorbed neighbor was a gas giant.
+    pub neighbor_was_gas_giant: bool,
+    /// Radius of the absorbed neighbor in km (for rendering).
+    pub neighbor_radius_in_km: f64,
+    /// Semi-major axis of the merged body after the collision.
+    pub result_a_au: f64,
+}
+
+/// The result of a single aggregation step (one protoplanet injection attempt).
+#[derive(Debug, Clone)]
+pub struct AccretionStepResult {
+    pub injection_radius_au: f64,
+    pub injection_eccentricity: f64,
+    pub outcome: StepOutcome,
+    /// Collisions that occurred during coalescence (empty if none).
+    pub collisions: Vec<CollisionRecord>,
+}
+
+/// Whether a protoplanet injection formed a body or failed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StepOutcome {
+    BodyFormed,
+    FailedInjection,
 }
 
 //---------------------------  AccretionDisk  ---------------------------------
@@ -289,100 +343,64 @@ impl AccretionDisk {
         std::f32::consts::PI as f64 * height * (r_outer.powf(2.0) - r_inner.powf(2.0))
     }
 
-    /// Determines if a new body will collide with any existing bodies in the accretion disk.
+    /// Determines if a new body is dynamically overpacked with any existing
+    /// body using the same orbital-ratio and mutual-Hill-sphere criteria
+    /// applied by the post-accretion spacing cleanup.  When two bodies
+    /// violate either criterion they are merged during accretion, preserving
+    /// mass in the system instead of discarding the smaller body later.
     ///
-    /// This method assesses potential collisions by comparing the orbital parameters of a new body
-    /// with those of existing bodies in the system. It calculates the gravitational influence range
-    /// for each body and checks if their orbits overlap, which would indicate a collision.
-    ///
-    /// # Parameters:
-    /// - `a`: Semi-major axis of the new body in astronomical units (AU).
-    /// - `e`: Eccentricity of the new body's orbit.
-    ///
-    /// # Returns:
-    /// - `(bool, usize)`: A tuple where the first element is a boolean indicating if a collision was found,
-    ///   and the second element is the index of the closest body that will collide with the new body, if any.
-    ///
-    /// # Process:
-    /// - Iterates over all bodies in the accretion disk.
-    /// - For each body, calculates the separation distance and compares it against the gravitational effect distances
-    ///   (`dist1` and `dist2`), which represent the maximum reach of gravitational influence for both the new body
-    ///   and the existing bodies.
-    /// - Determines if the new body's orbit intersects with the orbit of any existing body by checking if the
-    ///   separation is less than or equal to the gravitational influence distance of either body.
-    /// - Keeps track of the closest body that the new body might collide with.
-    ///
-    /// # Example:
-    /// ```rust,ignore
-    /// let mut accretion_disk = AccretionDisk::new(...);
-    /// let new_body = Body::default();
-    /// let (collision_found, closest_body_index) = accretion_disk.find_collision(&new_body);
-    /// if collision_found {
-    ///     println!("Collision is likely with body at index {}", closest_body_index);
-    /// }
-    /// ```
-    ///
-    /// # Notes:
-    /// - The function returns immediately if a collision is detected, with the closest colliding body.
-    /// - This approach assumes a simplified model where bodies are treated as points without physical size, focusing only on their orbital parameters.
+    /// # Returns
+    /// `(true, index)` when the closest overpacked neighbor is at `index`,
+    /// or `(false, 0)` when no collision is detected.
     fn find_collision(&self, new_body: &Body) -> (bool, usize) {
         let mut closest_neighbor = 0;
         let mut found_collision = false;
-        let mut closest_approach = 0.0;
-        let new_reduced_mass = (new_body.mass_in_sols / (1.0 + new_body.mass_in_sols)).powf(0.25);
+        let mut closest_approach = f64::INFINITY;
 
         for index in 0..self.bodies.len() {
             let body = &self.bodies[index];
-            let separation = body.a - new_body.a;
-            /*
-             *  In the following calculations, 'dist1' is the distance over
-             *  which the new planet gravitationally attracts the existing
-             *  planet while 'dist2' is the distance over which the existing
-             *  planet affects the new one.  A collision occurs if the
-             *  separation of the two planets is less than the gravitational
-             *  effects distance of either.
-             */
-            let existing_reduced_mass = (body.mass_in_sols / (1.0 + body.mass_in_sols)).powf(0.25);
-            let dist1;
-            let dist2;
-            if separation > 0.0 {
-                /*
-                 *  The neighbor is farther from the star than our test planet:
-                 */
-                dist1 = (new_body.a * (1.0 + new_body.e) * (1.0 + new_reduced_mass)) - new_body.a;
-                dist2 = body.a - (body.a * (1.0 - body.e) * (1.0 - existing_reduced_mass));
-            } else {
-                /*
-                 *  The new planet is farther from the star than its neighbor:
-                 */
-                dist1 = new_body.a - (new_body.a * (1.0 - new_body.e) * (1.0 - new_reduced_mass));
-                dist2 = (body.a * (1.0 + body.e) * (1.0 + existing_reduced_mass)) - body.a;
-            };
 
-            if (separation.abs() <= dist1.abs()) || (separation.abs() <= dist2.abs()) {
-                // These two should collide.  Save the distance and check the next planet.  If it is farther away, stop looking for other collisions and return the saved one:
-                if found_collision {
-                    /*
-                     *  Already found a planet to collide with - is this
-                     *  one closer?
-                     */
-                    if separation.abs() < closest_approach {
-                        closest_approach = separation.abs();
-                        closest_neighbor = index;
-                    }
-                } else {
-                    /*
-                     *  No other planet is close enough so far, so save the
-                     *  current info and continue checking:
-                     */
-                    closest_neighbor = index;
-                    closest_approach = separation.abs();
-                    found_collision = true;
-                }
+            if !Self::bodies_are_overpacked(self.central_mass_in_sols, body, new_body) {
+                continue;
+            }
+
+            let separation = (body.a - new_body.a).abs();
+            if !found_collision || separation < closest_approach {
+                closest_neighbor = index;
+                closest_approach = separation;
+                found_collision = true;
             }
         }
 
         (found_collision, closest_neighbor)
+    }
+
+    /// Two bodies are "overpacked" if their orbital semi-major axis ratio is
+    /// below `MIN_PLANETARY_LOG_SPACING_RATIO` *or* they are separated by
+    /// fewer than `MIN_PLANETARY_MUTUAL_HILL_SPACING` mutual Hill radii.
+    fn bodies_are_overpacked(host_mass_solar: f64, a: &Body, b: &Body) -> bool {
+        let (inner, outer) = if a.a <= b.a { (a, b) } else { (b, a) };
+
+        let ratio = if inner.a > 0.0 {
+            outer.a / inner.a
+        } else {
+            f64::INFINITY
+        };
+        if ratio < consts::MIN_PLANETARY_LOG_SPACING_RATIO {
+            return true;
+        }
+
+        let combined_mass_solar = (inner.mass_in_sols + outer.mass_in_sols).max(0.0);
+        if host_mass_solar <= 0.0 || combined_mass_solar <= 0.0 {
+            return false;
+        }
+
+        let average_a = (inner.a + outer.a) * 0.5;
+        let mutual_hill_radius = average_a * (combined_mass_solar / (3.0 * host_mass_solar)).powf(1.0 / 3.0);
+        let required_spacing = consts::MIN_PLANETARY_MUTUAL_HILL_SPACING * mutual_hill_radius;
+        let actual_spacing = (outer.a - inner.a).max(0.0);
+
+        actual_spacing < required_spacing
     }
 
     fn refresh_body_accretion_state(&self, body: &mut Body) {
@@ -604,21 +622,38 @@ impl AccretionDisk {
     }
 
     #[allow(dead_code)]
-    fn coalesce_body(&mut self, mut body: Body) -> Body {
+    fn coalesce_body(&mut self, mut body: Body) -> (Body, Vec<CollisionRecord>) {
+        let mut collisions = Vec::new();
         loop {
             let (found_collision, closest_neighbor) = self.find_collision(&body);
             if !found_collision {
                 break;
             }
 
+            let body_pre_a = body.a;
+            let body_was_gas_giant = body.mass_type == MassType::GasGiant;
+            let body_radius_in_km = body.radius_in_km;
             let neighbor = self.bodies.remove(closest_neighbor);
-            let should_remain_gas_giant =
-                body.mass_type == MassType::GasGiant || neighbor.mass_type == MassType::GasGiant;
+            let neighbor_pre_a = neighbor.a;
+            let neighbor_was_gas_giant = neighbor.mass_type == MassType::GasGiant;
+            let neighbor_radius_in_km = neighbor.radius_in_km;
+
+            let should_remain_gas_giant = body.mass_type == MassType::GasGiant || neighbor_was_gas_giant;
 
             body.collide(&neighbor);
             if should_remain_gas_giant {
                 body.mass_type = MassType::GasGiant;
             }
+
+            collisions.push(CollisionRecord {
+                body_pre_a_au: body_pre_a,
+                body_was_gas_giant,
+                body_radius_in_km,
+                neighbor_pre_a_au: neighbor_pre_a,
+                neighbor_was_gas_giant,
+                neighbor_radius_in_km,
+                result_a_au: body.a,
+            });
 
             self.refresh_body_accretion_state(&mut body);
             body = self.accrete_dust(body);
@@ -630,7 +665,7 @@ impl AccretionDisk {
 
         let formation_inputs = self.sample_planet_formation_inputs(body.a);
         body.initialize_from_formation_inputs(formation_inputs);
-        body
+        (body, collisions)
     }
 
     /// Simulates the process of dust and gas accretion for a celestial body in an accretion disk.
@@ -920,6 +955,93 @@ impl AccretionDisk {
     /// Panics if no dust band with dust is found, indicating an error in managing the state of the disk.
     /// Also, it will panic if the calculated bounds for the planet's orbit are out of expected range,
     /// which could indicate incorrect initialization or corruption of disk state.
+    /// Performs one iteration of the aggregation accretion loop: picks a random
+    /// dust band, injects a protoplanet, accretes dust/gas, coalesces collisions,
+    /// and returns a step result.
+    ///
+    /// After this call, `self.bands`, `self.bodies`, and `self.dust_left` are
+    /// updated to reflect the completed step.
+    fn aggregation_step(&mut self) -> AccretionStepResult {
+        let orbital_eccentricity = Self::random_eccentricity();
+        let band = self
+            .bands
+            .iter()
+            .find(|band| band.dust_present)
+            .expect("AccretionDisk.aggregation_step: unable to find a band with dust");
+
+        let bound1 = band
+            .inner_edge
+            .max(self.planet_inner_bound)
+            .min(self.planet_outer_bound);
+        let bound2 = band
+            .outer_edge
+            .min(self.planet_outer_bound)
+            .max(self.planet_inner_bound);
+        let orbital_radius_au = get_random_number(bound1..=bound2);
+
+        let mut protoplanet = Body::new(
+            orbital_radius_au,
+            orbital_eccentricity,
+            consts::PROTOPLANET_MASS,
+            MassType::Planet,
+            0.0,
+            self.central_mass_in_sols,
+            self.luminosity_in_sols,
+            None,
+        );
+        let (eff_inner_bound, eff_outer_bound, _, _) =
+            Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass_in_sols);
+
+        if !self.dust_available(eff_inner_bound, eff_outer_bound) {
+            panic!("ERROR: found no dust in range of protoplanet");
+        }
+
+        protoplanet = self.accrete_dust(protoplanet);
+        if protoplanet.is_trivial_mass() {
+            let log_level = *get_log_level!();
+            log!(
+                log_level,
+                1,
+                "Failed injection at {:.3} AU (trivial mass after accretion: {:.6} Earth masses)",
+                orbital_radius_au,
+                protoplanet.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES
+            );
+            return AccretionStepResult {
+                injection_radius_au: orbital_radius_au,
+                injection_eccentricity: orbital_eccentricity,
+                outcome: StepOutcome::FailedInjection,
+                collisions: Vec::new(),
+            };
+        }
+
+        let (protoplanet, collisions) = self.coalesce_body(protoplanet);
+        if protoplanet.is_trivial_mass() {
+            let log_level = *get_log_level!();
+            log!(
+                log_level,
+                1,
+                "Failed injection at {:.3} AU (trivial mass after coalescence: {:.6} Earth masses)",
+                orbital_radius_au,
+                protoplanet.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES
+            );
+            return AccretionStepResult {
+                injection_radius_au: orbital_radius_au,
+                injection_eccentricity: orbital_eccentricity,
+                outcome: StepOutcome::FailedInjection,
+                collisions,
+            };
+        }
+
+        Body::insert(&mut self.bodies, protoplanet);
+
+        AccretionStepResult {
+            injection_radius_au: orbital_radius_au,
+            injection_eccentricity: orbital_eccentricity,
+            outcome: StepOutcome::BodyFormed,
+            collisions,
+        }
+    }
+
     fn accrete_aggregation(&mut self) -> &mut Self {
         self.reset_generation_state();
         if self.planet_inner_bound > self.planet_outer_bound {
@@ -927,51 +1049,7 @@ impl AccretionDisk {
         }
 
         while self.dust_left {
-            let orbital_eccentricity = Self::random_eccentricity();
-            let band = self
-                .bands
-                .iter()
-                .find(|band| band.dust_present)
-                .expect("AccretionDisk.accrete_aggregation: unable to find a band with dust");
-
-            let bound1 = band
-                .inner_edge
-                .max(self.planet_inner_bound)
-                .min(self.planet_outer_bound);
-            let bound2 = band
-                .outer_edge
-                .min(self.planet_outer_bound)
-                .max(self.planet_inner_bound);
-            let orbital_radius_au = get_random_number(bound1..=bound2);
-
-            let mut protoplanet = Body::new(
-                orbital_radius_au,
-                orbital_eccentricity,
-                consts::PROTOPLANET_MASS,
-                MassType::Planet,
-                0.0,
-                self.central_mass_in_sols,
-                self.luminosity_in_sols,
-                None,
-            );
-            let (eff_inner_bound, eff_outer_bound, _, _) =
-                Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass_in_sols);
-
-            if !self.dust_available(eff_inner_bound, eff_outer_bound) {
-                panic!("ERROR: found no dust in range of protoplanet");
-            }
-
-            protoplanet = self.accrete_dust(protoplanet);
-            if protoplanet.is_trivial_mass() {
-                continue;
-            }
-
-            let protoplanet = self.coalesce_body(protoplanet);
-            if protoplanet.is_trivial_mass() {
-                continue;
-            }
-
-            Body::insert(&mut self.bodies, protoplanet);
+            self.aggregation_step();
         }
 
         let log_level = *get_log_level!();
@@ -1039,9 +1117,47 @@ impl AccretionDisk {
     }
 }
 
+//---------------------------  AccretionStepper  ------------------------------
+
+/// A thin wrapper that lets the UI drive the aggregation loop one step at a
+/// time.  Create it from a ready `AccretionDisk`, read the initial disk state,
+/// then call `step()` repeatedly until `is_done()`.
+pub struct AccretionStepper {
+    disk: AccretionDisk,
+}
+
+impl AccretionStepper {
+    /// Create a new stepper.  Calls `reset_generation_state()` on the disk so
+    /// it is ready for the first `step()` call.
+    pub fn new(mut disk: AccretionDisk) -> Self {
+        disk.reset_generation_state();
+        AccretionStepper { disk }
+    }
+
+    /// Returns `true` when there is no remaining dust to accrete.
+    pub fn is_done(&self) -> bool {
+        !self.disk.dust_left
+    }
+
+    /// Perform one aggregation step (one protoplanet injection attempt).
+    pub fn step(&mut self) -> AccretionStepResult {
+        self.disk.aggregation_step()
+    }
+
+    /// Borrow the underlying disk (e.g. to read `bands` or `bodies`).
+    pub fn disk(&self) -> &AccretionDisk {
+        &self.disk
+    }
+
+    /// Consume the stepper and return the finished disk.
+    pub fn into_disk(self) -> AccretionDisk {
+        self.disk
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::AccretionDisk;
+    use super::{AccretionDisk, AccretionStepper, StepOutcome};
     use crate::{
         accretion_parameters::{get_accretion_parameters, set_accretion_parameters},
         body::Body,
@@ -1077,7 +1193,10 @@ mod tests {
 
     #[test]
     fn find_collision_detects_inner_new_body_against_outer_neighbor() {
-        let mut disk = AccretionDisk::default();
+        let mut disk = AccretionDisk {
+            central_mass_in_sols: 1.0,
+            ..AccretionDisk::default()
+        };
         disk.bodies.push(body_at(1.5, 0.2, 0.01));
 
         let new_body = body_at(1.0, 0.0, 0.01);
@@ -1089,7 +1208,10 @@ mod tests {
 
     #[test]
     fn find_collision_detects_outer_new_body_against_inner_neighbor_outward_reach() {
-        let mut disk = AccretionDisk::default();
+        let mut disk = AccretionDisk {
+            central_mass_in_sols: 1.0,
+            ..AccretionDisk::default()
+        };
         disk.bodies.push(body_at(1.0, 0.2, 0.01));
 
         let new_body = body_at(1.5, 0.0, 0.01);
@@ -1100,15 +1222,50 @@ mod tests {
     }
 
     #[test]
-    fn find_collision_uses_new_body_mass_for_capture_reach() {
-        let mut disk = AccretionDisk::default();
+    fn find_collision_detects_overpacked_ratio_below_threshold() {
+        let mut disk = AccretionDisk {
+            central_mass_in_sols: 1.0,
+            ..AccretionDisk::default()
+        };
         disk.bodies.push(body_at(1.0, 0.0, 0.000001));
 
+        // 1.06 / 1.0 = 1.06 < MIN_PLANETARY_LOG_SPACING_RATIO (1.15) → overpacked via ratio check
         let new_body = body_at(1.06, 0.0, 0.00003);
         let (found_collision, closest_neighbor) = disk.find_collision(&new_body);
 
         assert!(found_collision);
         assert_eq!(closest_neighbor, 0);
+    }
+
+    #[test]
+    fn find_collision_detects_overpacked_hill_sphere_for_massive_bodies() {
+        let mut disk = AccretionDisk {
+            central_mass_in_sols: 1.0,
+            ..AccretionDisk::default()
+        };
+        // Bodies at 1.0 and 1.5 AU with 0.01 solar masses each pass the ratio
+        // check (1.5 > 1.15) but fail the mutual Hill sphere criterion.
+        disk.bodies.push(body_at(1.0, 0.0, 0.01));
+
+        let new_body = body_at(1.5, 0.0, 0.01);
+        let (found_collision, _) = disk.find_collision(&new_body);
+
+        assert!(found_collision);
+    }
+
+    #[test]
+    fn find_collision_no_collision_for_well_separated_bodies() {
+        let mut disk = AccretionDisk {
+            central_mass_in_sols: 1.0,
+            ..AccretionDisk::default()
+        };
+        // Bodies at 1.0 and 5.0 AU with tiny masses — ratio ok (5.0), Hill ok
+        disk.bodies.push(body_at(1.0, 0.0, 1e-8));
+
+        let new_body = body_at(5.0, 0.0, 1e-8);
+        let (found_collision, _) = disk.find_collision(&new_body);
+
+        assert!(!found_collision);
     }
 
     #[test]
@@ -1126,7 +1283,7 @@ mod tests {
         disk.bodies.push(body_at(1.0, 0.0, 0.0001));
         disk.bodies.push(body_at(1.12, 0.0, 0.0001));
 
-        let merged_body = disk.coalesce_body(body_at(1.06, 0.0, 0.0001));
+        let (merged_body, _collisions) = disk.coalesce_body(body_at(1.06, 0.0, 0.0001));
 
         assert!(disk.bodies.is_empty());
         assert!((merged_body.mass_in_sols - 0.0003).abs() < 1e-12);
@@ -1250,5 +1407,123 @@ mod tests {
         assert_ne!(dense_snapshot, sparse_snapshot);
 
         set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
+    }
+
+    // ---- Stepper regression tests ----
+
+    /// Snapshot of generated bodies for comparison.
+    fn body_snapshot(disk: &AccretionDisk) -> Vec<(f64, f64, f64, MassType)> {
+        disk.bodies
+            .iter()
+            .map(|b| (b.a, b.e, b.mass_in_sols, b.mass_type))
+            .collect()
+    }
+
+    /// Run the stepper to completion and return the finished disk.
+    fn run_stepper_to_completion(disk: AccretionDisk) -> AccretionDisk {
+        let mut stepper = AccretionStepper::new(disk);
+        while !stepper.is_done() {
+            stepper.step();
+        }
+        stepper.into_disk()
+    }
+
+    /// Verify that the stepper path produces identical bodies to the one-shot
+    /// `accrete_aggregation()` path for several seeds.
+    ///
+    /// This test is `#[ignore]` because it depends on the global RNG being
+    /// uncontested.  Run with:
+    ///
+    /// ```text
+    /// cargo test --lib -- --test-threads=1 --ignored
+    /// ```
+    #[test]
+    #[ignore]
+    fn stepper_vs_one_shot_equivalence() {
+        let _guard = lock_accretion_test_state();
+        let original = get_accretion_parameters();
+
+        for seed in [42, 123, 999, 2024, 31415] {
+            set_rng_seed(seed);
+            set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
+            let mut one_shot = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
+            one_shot.accrete_with_mode(GenerationMode::Aggregation);
+            let one_shot_snap = body_snapshot(&one_shot);
+
+            set_rng_seed(seed);
+            set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
+            let stepper_disk = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
+            let stepped = run_stepper_to_completion(stepper_disk);
+            let stepped_snap = body_snapshot(&stepped);
+
+            assert_eq!(
+                one_shot_snap, stepped_snap,
+                "seed {seed}: stepper produced different bodies than one-shot"
+            );
+        }
+
+        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
+    }
+
+    #[test]
+    fn stepper_step_result_matches_body_changes() {
+        let _guard = lock_accretion_test_state();
+        let original = get_accretion_parameters();
+
+        set_rng_seed(42);
+        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
+        let disk = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
+        let mut stepper = AccretionStepper::new(disk);
+
+        while !stepper.is_done() {
+            let bodies_before = stepper.disk().bodies.len();
+            let result = stepper.step();
+            let bodies_after = stepper.disk().bodies.len();
+
+            match result.outcome {
+                StepOutcome::BodyFormed => {
+                    assert!(
+                        bodies_after >= bodies_before,
+                        "BodyFormed but body count did not increase (before={bodies_before}, after={bodies_after})"
+                    );
+                }
+                StepOutcome::FailedInjection => {
+                    assert_eq!(bodies_after, bodies_before, "FailedInjection but body count changed");
+                }
+            }
+
+            assert!(
+                result.injection_radius_au >= stepper.disk().planet_inner_bound,
+                "injection_radius_au below planet_inner_bound"
+            );
+            assert!(
+                result.injection_radius_au <= stepper.disk().planet_outer_bound,
+                "injection_radius_au above planet_outer_bound"
+            );
+        }
+
+        assert!(
+            !stepper.disk().bands.iter().any(|b| b.dust_present()),
+            "stepper done but dust bands remain"
+        );
+
+        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
+    }
+
+    #[test]
+    fn stepper_is_done_before_first_step_when_no_viable_disk() {
+        let disk = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 40.0, 0.3);
+        let stepper = AccretionStepper::new(disk);
+        assert!(stepper.is_done());
+    }
+
+    #[test]
+    fn band_accessors_match_initial_state() {
+        let disk = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
+        assert!(!disk.bands.is_empty());
+        let band = &disk.bands[0];
+        assert!(band.dust_present());
+        assert!(band.gas_present());
+        assert!(band.inner_edge() < band.outer_edge());
     }
 }

@@ -400,6 +400,14 @@ impl Body {
     /// - `other`: A reference to the other `Body` involved in the collision.
     ///
     pub fn collide(&mut self, other: &Body) {
+        // Capture pre-collision state for logging
+        let self_mass_earth = self.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES;
+        let other_mass_earth = other.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES;
+        let self_type = self.mass_type;
+        let other_type = other.mass_type;
+        let self_a = self.a;
+        let other_a = other.a;
+
         let new_a =
             (self.mass_in_sols + other.mass_in_sols) / ((self.mass_in_sols / self.a) + (other.mass_in_sols / other.a));
 
@@ -418,6 +426,7 @@ impl Body {
         self.a = new_a;
         self.e = new_e;
         self.mass_in_sols += other.mass_in_sols;
+        let resulting_mass_earth = self.mass_in_sols * consts::SUN_MASS_IN_EARTH_MASSES;
 
         // If the protoplanet had the misfortune to collide with a star, update the corresponding star
         if self.mass_type == MassType::Star {
@@ -429,11 +438,16 @@ impl Body {
         log!(
             *get_log_level!(),
             1,
-            "Collision with a {}! ({:.2}, {:.2} -> {:.2})",
+            "Collision: {} ({:.3} Earth masses at {:.3} AU) + {} ({:.3} Earth masses at {:.3} AU) -> surviving {} at {:.3} AU with {:.3} Earth masses",
+            self_type,
+            self_mass_earth,
+            self_a,
+            other_type,
+            other_mass_earth,
+            other_a,
             self.mass_type,
-            other.a,
-            self.a,
-            new_a
+            new_a,
+            resulting_mass_earth
         );
     }
 

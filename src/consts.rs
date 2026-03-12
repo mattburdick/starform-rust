@@ -34,6 +34,14 @@ pub const ALPHA: f64 = 5.0; // Used in density calcs
 pub const N: f64 = 3.0; // Used in density calcs
 pub const TRIVIAL_MASS: f64 = 1.0E-14; // Units of solar masses
 
+/// Adjacent planets whose orbital semi-major axis ratio is below this
+/// threshold are considered dynamically overpacked (geometry-only check).
+pub const MIN_PLANETARY_LOG_SPACING_RATIO: f64 = 1.15;
+
+/// Adjacent planets separated by fewer than this many mutual Hill radii are
+/// considered dynamically overpacked (mass-aware check).
+pub const MIN_PLANETARY_MUTUAL_HILL_SPACING: f64 = 5.0;
+
 pub const SOLAR_MASS_IN_GRAMS: f64 = 1.989E33; // Units of grams
 pub const CM_PER_KM: f64 = 1.0E5; // number of cm in a km
 pub const CM_PER_AU: f64 = 1.495978707E13; // number of cm in an AU

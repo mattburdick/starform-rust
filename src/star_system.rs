@@ -18,8 +18,7 @@ use crate::{
 
 const MIN_PLANETARY_REGION_WIDTH_AU: f64 = 0.1;
 const MIN_HIERARCHICAL_TRIPLE_GAP_RATIO: f64 = 3.0;
-const MIN_PLANETARY_LOG_SPACING_RATIO: f64 = 1.15;
-const MIN_PLANETARY_MUTUAL_HILL_SPACING: f64 = 5.0;
+use crate::consts::{MIN_PLANETARY_LOG_SPACING_RATIO, MIN_PLANETARY_MUTUAL_HILL_SPACING};
 const PLANETARY_MASS_TIE_RELATIVE_TOLERANCE: f64 = 1.0e-6;
 
 #[derive(Debug, Clone, Copy)]
@@ -378,9 +377,25 @@ impl StarSystem {
         }
     }
 
-    pub fn new_with_config(generation_config: &SystemGenerationConfig) -> Self {
+    /// Create configured stars from a generation config **without** running
+    /// accretion.  Each returned star has an initialised (but un-accreted)
+    /// `AccretionDisk`.  The RNG is advanced exactly as `new_with_config` would
+    /// up to (but not including) the accretion step, so callers that later run
+    /// accretion on each star and re-assemble via `from_stars` will get the
+    /// same result as the one-shot path.
+    ///
+    /// This is the entry-point used by the animated-generation UI: it creates
+    /// `AccretionStepper`s from the returned stars' disks and drives them one
+    /// step at a time.
+    pub fn prepare_stars_from_config(generation_config: &SystemGenerationConfig) -> Vec<Star> {
         let log_level = *get_log_level!();
-        let generation_mode = generation_config.generation_mode;
+        let stars = Self::build_stars_from_config(generation_config);
+        Self::log_generated_stars(log_level, &stars);
+        Self::log_multi_star_layout(log_level, &stars);
+        stars
+    }
+
+    fn build_stars_from_config(generation_config: &SystemGenerationConfig) -> Vec<Star> {
         let star_count = Self::resolve_star_count(generation_config);
         let companion_separations_au = Self::resolve_companion_separations_au(generation_config, star_count);
 
@@ -396,17 +411,24 @@ impl StarSystem {
             Self::configure_star_orbit(&mut star, orbital_radius_in_au, eccentricity);
             stars.push(star);
         }
+        stars
+    }
+
+    pub fn new_with_config(generation_config: &SystemGenerationConfig) -> Self {
+        let log_level = *get_log_level!();
+        let generation_mode = generation_config.generation_mode;
+        let mut stars = Self::build_stars_from_config(generation_config);
 
         Self::log_generated_stars(log_level, &stars);
         Self::log_multi_star_layout(log_level, &stars);
 
-        match star_count {
+        match stars.len() {
             1 => Self::generate_single_star_system(stars.remove(0), generation_mode),
             2 => {
                 let binary = BinaryTopology {
                     primary_index: 0,
                     secondary_index: 1,
-                    semi_major_axis_au: companion_separations_au[0],
+                    semi_major_axis_au: stars[1].a,
                     eccentricity: stars[1].body.e,
                     total_mass_solar: stars[0].mass_in_sols + stars[1].mass_in_sols,
                     mass_ratio: if (stars[0].mass_in_sols + stars[1].mass_in_sols) > 0.0 {
