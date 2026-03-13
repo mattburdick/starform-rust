@@ -157,6 +157,11 @@ pub struct AccretionDisk {
     pub bands: Vec<Band>,        // The bands of dust and gas comprising the accretion disk
     pub bodies: Vec<Body>,       // The bodies in the accretion disk
     pub dust_left: bool,         // If true, dust remains to be accreted
+    /// Cached gas-to-dust ratio, read once from ACCRETION_PARAMETERS at construction.
+    /// Avoids repeated mutex locks in the hot collect_dust inner loop.
+    cached_gas_to_dust_ratio: f64,
+    /// Cached dust density coefficient from ACCRETION_PARAMETERS.
+    cached_dust_density_coeff: f64,
 }
 
 impl fmt::Display for AccretionDisk {
@@ -237,6 +242,14 @@ impl AccretionDisk {
             Band::insert(&mut bands, Band::new(disk_inner_bound, disk_outer_bound));
         }
 
+        let (cached_gas_to_dust_ratio, cached_dust_density_coeff) = {
+            let params = crate::accretion_parameters::ACCRETION_PARAMETERS.lock().unwrap();
+            (
+                ((1.0 / params.percent_dust_in_cloud) * 100.0).min(1000.0),
+                params.dust_density_coefficient,
+            )
+        };
+
         AccretionDisk {
             luminosity_in_sols,
             central_mass_in_sols,
@@ -248,6 +261,8 @@ impl AccretionDisk {
             bands,
             bodies: Vec::new(),
             dust_left: has_viable_band,
+            cached_gas_to_dust_ratio,
+            cached_dust_density_coeff,
         }
     }
 
@@ -404,7 +419,9 @@ impl AccretionDisk {
     }
 
     fn refresh_body_accretion_state(&self, body: &mut Body) {
-        body.local_dust_density = body.dust_density(self.central_mass_in_sols);
+        body.local_dust_density = self.cached_dust_density_coeff
+            * self.central_mass_in_sols.sqrt()
+            * f64::exp(-consts::ALPHA * body.a.cbrt());
         body.critical_mass_limit = body.critical_limit(self.luminosity_in_sols);
     }
 
@@ -850,7 +867,10 @@ impl AccretionDisk {
             };
 
             let volume = Self::volume(r_inner, r_outer, xp, xa);
-            new_mass += volume * protoplanet.local_density(new_mass);
+            let ratio = self.cached_gas_to_dust_ratio;
+            let density = ratio * protoplanet.local_dust_density
+                / (1.0 + (protoplanet.critical_mass_limit / new_mass).sqrt() * (ratio - 1.0));
+            new_mass += volume * density;
         }
 
         // Apply all changes here
