@@ -5,10 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::{collections::HashMap, fmt};
 
 use crate::random::get_random_number;
-use crate::{
-    accretion_disk::AccretionDisk, body::Body, consts, generation::GenerationMode, random, star::SpectralClass::*,
-    types::MassType,
-};
+use crate::{accretion_disk::AccretionDisk, body::Body, consts, random, star::SpectralClass::*, types::MassType};
 
 lazy_static! {
     #[rustfmt::skip]
@@ -1146,18 +1143,13 @@ impl Star {
         star
     }
 
-    pub fn accrete_with_mode(&mut self, generation_mode: GenerationMode) -> &mut Self {
-        // Check if there is an accretion disk and lock it for writing
+    pub fn accrete(&mut self) -> &mut Self {
         if let Some(accretion_disk) = &self.body.accretion_disk {
             let mut disk = accretion_disk.write().unwrap();
-            disk.accrete_with_mode(generation_mode);
+            disk.accrete();
         }
 
         self
-    }
-
-    pub fn accrete(&mut self) -> &mut Self {
-        self.accrete_with_mode(GenerationMode::Aggregation)
     }
 }
 

@@ -2,12 +2,9 @@
 
 use crate::random::get_random_number;
 use crate::{
-    accretion_parameters::get_accretion_parameters,
     body::Body,
     condensation::{CondensationThresholds, PlanetFormationInputs, RegionThermalProfile},
-    consts,
-    generation::GenerationMode,
-    get_log_level, log,
+    consts, get_log_level, log,
     types::MassType,
 };
 use std::{collections::VecDeque, fmt};
@@ -95,14 +92,6 @@ impl Band {
             i += merged_count + 1;
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct EmbryoCell {
-    orbital_radius_au: f64,
-    orbital_eccentricity: f64,
-    inner_edge_au: f64,
-    outer_edge_au: f64,
 }
 
 //---------------------------  AccretionStepResult  ---------------------------
@@ -211,14 +200,6 @@ impl Default for AccretionDisk {
 }
 
 impl AccretionDisk {
-    const SEMI_ANALYTIC_BASE_SPACING_RATIO: f64 = 1.65;
-    const SEMI_ANALYTIC_SPACING_JITTER: f64 = 0.35;
-    const SEMI_ANALYTIC_MIN_SPACING_RATIO: f64 = 1.18;
-    const SEMI_ANALYTIC_MAX_SPACING_RATIO: f64 = 2.60;
-    const SEMI_ANALYTIC_ECCENTRICITY_SCALE: f64 = 0.35;
-    const SEMI_ANALYTIC_ISOLATION_SCALE: f64 = 6.0e3;
-    const SEMI_ANALYTIC_MIN_SOLID_FRACTION: f64 = 0.02;
-
     pub fn new_with_planet_bounds(
         central_mass_in_sols: f64,
         luminosity_in_sols: f64,
@@ -430,10 +411,6 @@ impl AccretionDisk {
             .sample_planet_formation_inputs(orbital_radius_au, CondensationThresholds::default())
     }
 
-    fn clear_compatibility_bands(&mut self) {
-        self.bands.clear();
-    }
-
     fn reset_generation_state(&mut self) {
         self.bodies.clear();
         self.bands.clear();
@@ -446,199 +423,6 @@ impl AccretionDisk {
         }
     }
 
-    fn sample_log_uniform(min_value: f64, max_value: f64) -> f64 {
-        let min_value = min_value.max(1.0e-4);
-        let max_value = max_value.max(min_value);
-        if (max_value - min_value).abs() <= f64::EPSILON {
-            return min_value;
-        }
-
-        let min_log = min_value.log10();
-        let max_log = max_value.log10();
-        10_f64.powf(get_random_number(min_log..=max_log))
-    }
-
-    fn sample_embryo_step_ratio() -> f64 {
-        let jitter =
-            get_random_number((1.0 - Self::SEMI_ANALYTIC_SPACING_JITTER)..=(1.0 + Self::SEMI_ANALYTIC_SPACING_JITTER));
-        (Self::SEMI_ANALYTIC_BASE_SPACING_RATIO * jitter).clamp(
-            Self::SEMI_ANALYTIC_MIN_SPACING_RATIO,
-            Self::SEMI_ANALYTIC_MAX_SPACING_RATIO,
-        )
-    }
-
-    fn generate_log_spaced_embryo_cells(&self) -> Vec<EmbryoCell> {
-        if self.planet_outer_bound <= self.planet_inner_bound {
-            return Vec::new();
-        }
-
-        let mut orbital_radii_au = Vec::new();
-        let initial_max = (self.planet_inner_bound.max(0.01) * Self::SEMI_ANALYTIC_BASE_SPACING_RATIO.sqrt())
-            .min(self.planet_outer_bound)
-            .max(self.planet_inner_bound.max(0.01));
-        let mut orbital_radius_au = Self::sample_log_uniform(self.planet_inner_bound.max(0.01), initial_max);
-
-        while orbital_radius_au <= self.planet_outer_bound {
-            orbital_radii_au.push(orbital_radius_au);
-            let step_ratio = Self::sample_embryo_step_ratio();
-            let next_orbital_radius_au = orbital_radius_au * step_ratio;
-            if next_orbital_radius_au <= orbital_radius_au {
-                break;
-            }
-            orbital_radius_au = next_orbital_radius_au;
-        }
-
-        if orbital_radii_au.is_empty() {
-            orbital_radii_au.push((self.planet_inner_bound + self.planet_outer_bound) / 2.0);
-        }
-
-        orbital_radii_au
-            .iter()
-            .enumerate()
-            .filter_map(|(index, orbital_radius_au)| {
-                let inner_edge_au = if index == 0 {
-                    self.planet_inner_bound
-                } else {
-                    (orbital_radii_au[index - 1] * orbital_radius_au)
-                        .sqrt()
-                        .max(self.planet_inner_bound)
-                };
-                let outer_edge_au = if index + 1 == orbital_radii_au.len() {
-                    self.planet_outer_bound
-                } else {
-                    (orbital_radius_au * orbital_radii_au[index + 1])
-                        .sqrt()
-                        .min(self.planet_outer_bound)
-                };
-
-                if outer_edge_au <= inner_edge_au {
-                    return None;
-                }
-
-                Some(EmbryoCell {
-                    orbital_radius_au: Self::sample_log_uniform(inner_edge_au, outer_edge_au),
-                    orbital_eccentricity: (Self::random_eccentricity() * Self::SEMI_ANALYTIC_ECCENTRICITY_SCALE)
-                        .min(0.35),
-                    inner_edge_au,
-                    outer_edge_au,
-                })
-            })
-            .collect()
-    }
-
-    fn estimate_local_solid_surface_density(&self, body: &Body, formation_inputs: PlanetFormationInputs) -> f64 {
-        let solids_fraction = (1.0 - formation_inputs.condensation_fractions.gas).clamp(0.0, 1.0);
-        if solids_fraction < Self::SEMI_ANALYTIC_MIN_SOLID_FRACTION {
-            return 0.0;
-        }
-
-        body.local_dust_density * solids_fraction
-    }
-
-    fn estimate_isolation_mass(&self, cell: EmbryoCell, formation_inputs: PlanetFormationInputs, body: &Body) -> f64 {
-        let solid_surface_density = self.estimate_local_solid_surface_density(body, formation_inputs);
-        if solid_surface_density <= 0.0 {
-            return 0.0;
-        }
-
-        let annulus_area = (cell.outer_edge_au.powi(2) - cell.inner_edge_au.powi(2)).max(0.0);
-        if annulus_area <= 0.0 {
-            return 0.0;
-        }
-
-        let icy_enhancement = 1.0
-            + formation_inputs.condensation_fractions.water_ice
-            + formation_inputs.condensation_fractions.volatile_ices;
-        let orbital_scale = cell.orbital_radius_au.max(0.1).sqrt();
-        let host_mass_scale = self.central_mass_in_sols.max(0.1).powf(0.15);
-
-        Self::SEMI_ANALYTIC_ISOLATION_SCALE * solid_surface_density * annulus_area * orbital_scale * icy_enhancement
-            / host_mass_scale
-    }
-
-    fn estimate_envelope_mass(
-        &self,
-        core_mass_in_sols: f64,
-        critical_mass_limit: f64,
-        formation_inputs: PlanetFormationInputs,
-    ) -> f64 {
-        if critical_mass_limit <= 0.0 || core_mass_in_sols <= 0.0 {
-            return 0.0;
-        }
-
-        let gas_fraction = formation_inputs.condensation_fractions.gas;
-        if gas_fraction <= 0.0 {
-            return 0.0;
-        }
-
-        let accretion_parameters = get_accretion_parameters();
-        let gas_to_dust_ratio =
-            ((100.0 / accretion_parameters.percent_dust_in_cloud.max(0.1)) - 1.0).clamp(0.0, 1000.0);
-        let giant_core_eligibility = ((core_mass_in_sols / critical_mass_limit) - 0.75).clamp(0.0, 1.5);
-
-        core_mass_in_sols * giant_core_eligibility * gas_fraction * ((gas_to_dust_ratio + 1.0) / 50.0).sqrt() * 0.65
-    }
-
-    fn finalize_generated_body(&self, body: &mut Body, force_gas_giant: bool) {
-        let formation_inputs = self.sample_planet_formation_inputs(body.a);
-        let gas_available = formation_inputs.condensation_fractions.gas > 0.05;
-        body.mass_type = if force_gas_giant
-            || (gas_available && body.critical_mass_limit > 0.0 && body.mass_in_sols >= body.critical_mass_limit)
-        {
-            MassType::GasGiant
-        } else {
-            MassType::Planet
-        };
-        body.initialize_from_formation_inputs(formation_inputs);
-    }
-
-    fn estimate_candidate_body(&self, cell: EmbryoCell) -> Option<Body> {
-        let mut body = Body::new(
-            cell.orbital_radius_au,
-            cell.orbital_eccentricity,
-            consts::PROTOPLANET_MASS,
-            MassType::Planet,
-            0.0,
-            self.central_mass_in_sols,
-            self.luminosity_in_sols,
-            None,
-        );
-        let formation_inputs = self.sample_planet_formation_inputs(cell.orbital_radius_au);
-        let core_mass_in_sols = self.estimate_isolation_mass(cell, formation_inputs, &body);
-        if core_mass_in_sols <= consts::TRIVIAL_MASS {
-            return None;
-        }
-
-        body.mass_in_sols = core_mass_in_sols;
-        self.refresh_body_accretion_state(&mut body);
-        let envelope_mass_in_sols =
-            self.estimate_envelope_mass(core_mass_in_sols, body.critical_mass_limit, formation_inputs);
-        body.mass_in_sols += envelope_mass_in_sols;
-        self.refresh_body_accretion_state(&mut body);
-        self.finalize_generated_body(&mut body, false);
-        Some(body)
-    }
-
-    fn coalesce_generated_body(&mut self, mut body: Body) -> Body {
-        let mut force_gas_giant = body.mass_type == MassType::GasGiant;
-        loop {
-            let (found_collision, closest_neighbor) = self.find_collision(&body);
-            if !found_collision {
-                break;
-            }
-
-            let neighbor = self.bodies.remove(closest_neighbor);
-            force_gas_giant = force_gas_giant || neighbor.mass_type == MassType::GasGiant;
-
-            body.collide(&neighbor);
-            self.refresh_body_accretion_state(&mut body);
-        }
-
-        self.finalize_generated_body(&mut body, force_gas_giant);
-        body
-    }
-
-    #[allow(dead_code)]
     fn coalesce_body(&mut self, mut body: Body) -> (Body, Vec<CollisionRecord>) {
         let mut collisions = Vec::new();
         loop {
@@ -1088,52 +872,8 @@ impl AccretionDisk {
         self
     }
 
-    fn accrete_semi_analytic(&mut self) -> &mut Self {
-        self.bodies.clear();
-        self.clear_compatibility_bands();
-
-        if self.planet_inner_bound > self.planet_outer_bound {
-            panic!("ERROR: planet inner bound is greater than outer bound\n");
-        }
-
-        for embryo_cell in self.generate_log_spaced_embryo_cells() {
-            let Some(candidate_body) = self.estimate_candidate_body(embryo_cell) else {
-                continue;
-            };
-            let candidate_body = self.coalesce_generated_body(candidate_body);
-            if candidate_body.is_trivial_mass() {
-                continue;
-            }
-            Body::insert(&mut self.bodies, candidate_body);
-        }
-
-        self.dust_left = false;
-
-        let log_level = *get_log_level!();
-        log!(
-            log_level,
-            1,
-            "Generated {} semi-analytic bodies between {:.2} AU and {:.2} AU",
-            self.bodies.len(),
-            self.planet_inner_bound,
-            self.planet_outer_bound
-        );
-        if log_level >= 2 && !self.bodies.is_empty() {
-            log!(log_level, 2, "{}", self);
-        }
-
-        self
-    }
-
-    pub fn accrete_with_mode(&mut self, generation_mode: GenerationMode) -> &mut Self {
-        match generation_mode {
-            GenerationMode::Aggregation => self.accrete_aggregation(),
-            GenerationMode::SemiAnalyticExperimental => self.accrete_semi_analytic(),
-        }
-    }
-
     pub fn accrete(&mut self) -> &mut Self {
-        self.accrete_with_mode(GenerationMode::Aggregation)
+        self.accrete_aggregation()
     }
 }
 
@@ -1182,7 +922,6 @@ mod tests {
         accretion_parameters::{get_accretion_parameters, set_accretion_parameters},
         body::Body,
         condensation::RegionThermalProfile,
-        generation::GenerationMode,
         random::set_rng_seed,
         types::MassType,
     };
@@ -1312,88 +1051,6 @@ mod tests {
     }
 
     #[test]
-    fn semi_analytic_accrete_is_deterministic_for_same_seed() {
-        let _guard = lock_accretion_test_state();
-        let original = get_accretion_parameters();
-
-        set_rng_seed(4242);
-        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
-        let mut first = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
-        first.accrete_with_mode(GenerationMode::SemiAnalyticExperimental);
-        let first_snapshot = first
-            .bodies
-            .iter()
-            .map(|body| (body.a, body.e, body.mass_in_sols, body.mass_type))
-            .collect::<Vec<_>>();
-
-        set_rng_seed(4242);
-        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
-        let mut second = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
-        second.accrete_with_mode(GenerationMode::SemiAnalyticExperimental);
-        let second_snapshot = second
-            .bodies
-            .iter()
-            .map(|body| (body.a, body.e, body.mass_in_sols, body.mass_type))
-            .collect::<Vec<_>>();
-
-        assert_eq!(first_snapshot, second_snapshot);
-
-        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
-    }
-
-    #[test]
-    fn semi_analytic_accrete_respects_planet_bounds_and_sorts_bodies() {
-        let _guard = lock_accretion_test_state();
-        let original = get_accretion_parameters();
-
-        set_rng_seed(17);
-        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
-        let mut disk = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 1.0, 5.0);
-        disk.accrete_with_mode(GenerationMode::SemiAnalyticExperimental);
-
-        assert!(!disk.bodies.is_empty());
-        assert!(!disk.dust_left);
-        assert!(disk.bands.is_empty());
-        for window in disk.bodies.windows(2) {
-            assert!(window[0].a <= window[1].a);
-        }
-        for body in &disk.bodies {
-            assert!(body.a >= 1.0);
-            assert!(body.a <= 5.0);
-        }
-
-        set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
-    }
-
-    #[test]
-    fn semi_analytic_embryo_spacing_is_not_a_near_fixed_geometric_ladder() {
-        let _guard = lock_accretion_test_state();
-
-        set_rng_seed(23);
-        let disk = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
-        let embryo_cells = disk.generate_log_spaced_embryo_cells();
-
-        assert!(
-            embryo_cells.len() >= 5,
-            "expected several embryo cells, got {}",
-            embryo_cells.len()
-        );
-
-        let spacing_ratios = embryo_cells
-            .windows(2)
-            .map(|window| window[1].orbital_radius_au / window[0].orbital_radius_au)
-            .collect::<Vec<_>>();
-
-        let min_ratio = spacing_ratios.iter().copied().fold(f64::INFINITY, f64::min);
-        let max_ratio = spacing_ratios.iter().copied().fold(0.0_f64, f64::max);
-
-        assert!(
-            max_ratio - min_ratio > 0.35,
-            "expected noticeably irregular embryo spacing, got ratios {spacing_ratios:?}"
-        );
-    }
-
-    #[test]
     fn aggregation_default_mode_is_sensitive_to_dust_density_for_same_seed() {
         let _guard = lock_accretion_test_state();
         let original = get_accretion_parameters();
@@ -1467,7 +1124,7 @@ mod tests {
             set_rng_seed(seed);
             set_accretion_parameters(original.dust_density_coefficient, original.percent_dust_in_cloud);
             let mut one_shot = AccretionDisk::new_with_planet_bounds(1.0, 1.0, MassType::Star, 0.3, 40.0);
-            one_shot.accrete_with_mode(GenerationMode::Aggregation);
+            one_shot.accrete();
             let one_shot_snap = body_snapshot(&one_shot);
 
             set_rng_seed(seed);

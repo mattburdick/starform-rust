@@ -51,12 +51,6 @@ pub enum StarSelectionMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GenerationMode {
-    Aggregation,
-    SemiAnalyticExperimental,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfiguredStar {
     pub selection_mode: StarSelectionMode,
     pub spectral_class: SpectralClass,
@@ -91,7 +85,6 @@ pub struct SystemGenerationConfig {
     pub system_preset: SystemGenerationPreset,
     pub host_star_preset: HostStarPreset,
     pub multiplicity_preset: MultiplicityPreset,
-    pub generation_mode: GenerationMode,
     pub star_count_mode: StarCountMode,
     pub star_count: usize,
     pub separation_mode: SeparationMode,
@@ -106,7 +99,6 @@ impl Default for SystemGenerationConfig {
             system_preset: SystemGenerationPreset::Custom,
             host_star_preset: HostStarPreset::RandomObserved,
             multiplicity_preset: MultiplicityPreset::Observed,
-            generation_mode: GenerationMode::Aggregation,
             star_count_mode: StarCountMode::Sampled,
             star_count: 1,
             separation_mode: SeparationMode::Sampled,
@@ -123,7 +115,6 @@ impl SystemGenerationConfig {
             system_preset: SystemGenerationPreset::RockyRich,
             host_star_preset: HostStarPreset::CoolDwarf,
             multiplicity_preset: MultiplicityPreset::SingleHeavy,
-            generation_mode: GenerationMode::Aggregation,
             star_count_mode: StarCountMode::Exact,
             star_count: 1,
             separation_mode: SeparationMode::Sampled,
@@ -147,7 +138,6 @@ impl SystemGenerationConfig {
             system_preset: SystemGenerationPreset::SolarLike,
             host_star_preset: HostStarPreset::SolarAnalog,
             multiplicity_preset: MultiplicityPreset::Observed,
-            generation_mode: GenerationMode::Aggregation,
             star_count_mode: StarCountMode::Exact,
             star_count: 1,
             separation_mode: SeparationMode::Sampled,
@@ -164,7 +154,6 @@ impl SystemGenerationConfig {
             system_preset: SystemGenerationPreset::GiantRich,
             host_star_preset: HostStarPreset::WarmBright,
             multiplicity_preset: MultiplicityPreset::SingleHeavy,
-            generation_mode: GenerationMode::Aggregation,
             star_count_mode: StarCountMode::Exact,
             star_count: 1,
             separation_mode: SeparationMode::Sampled,
@@ -231,11 +220,5 @@ mod tests {
         assert_eq!(config.stars[0].selection_mode, StarSelectionMode::Explicit);
         assert_eq!(config.stars[0].spectral_class, SpectralClass::G);
         assert_eq!(config.stars[0].spectral_number, 2);
-    }
-
-    #[test]
-    fn default_generation_mode_is_aggregation() {
-        let config = SystemGenerationConfig::default();
-        assert_eq!(config.generation_mode, GenerationMode::Aggregation);
     }
 }

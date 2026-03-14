@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use crate::{
     accretion_disk::AccretionDisk,
     generation::{
-        ConfiguredStar, GenerationMode, MultiplicityPreset, SeparationMode, StarCountMode, StarSelectionMode,
-        SystemGenerationConfig, MAX_GENERATION_STARS,
+        ConfiguredStar, MultiplicityPreset, SeparationMode, StarCountMode, StarSelectionMode, SystemGenerationConfig,
+        MAX_GENERATION_STARS,
     },
     get_log_level, log,
     random::get_random_number,
@@ -348,15 +348,11 @@ impl StarSystem {
                         star.mass_in_sols,
                         star.stellar_classification()
                     );
-                    Self::generate_single_star_system(star, GenerationMode::Aggregation)
+                    Self::generate_single_star_system(star)
                 }
-                2 => Self::generate_binary_star_system(log_level, GenerationMode::Aggregation),
-                3 => Self::generate_random_triple_star_system(log_level, GenerationMode::Aggregation),
-                _ => Self::generate_random_higher_multiplicity_star_system(
-                    log_level,
-                    star_count,
-                    GenerationMode::Aggregation,
-                ),
+                2 => Self::generate_binary_star_system(log_level),
+                3 => Self::generate_random_triple_star_system(log_level),
+                _ => Self::generate_random_higher_multiplicity_star_system(log_level, star_count),
             }
         } else {
             // Create a star system with one star based on the description in the "-t" flag
@@ -373,7 +369,7 @@ impl StarSystem {
                 star.mass_in_sols,
                 star.stellar_classification()
             );
-            Self::generate_single_star_system(star, GenerationMode::Aggregation)
+            Self::generate_single_star_system(star)
         }
     }
 
@@ -416,14 +412,13 @@ impl StarSystem {
 
     pub fn new_with_config(generation_config: &SystemGenerationConfig) -> Self {
         let log_level = *get_log_level!();
-        let generation_mode = generation_config.generation_mode;
         let mut stars = Self::build_stars_from_config(generation_config);
 
         Self::log_generated_stars(log_level, &stars);
         Self::log_multi_star_layout(log_level, &stars);
 
         match stars.len() {
-            1 => Self::generate_single_star_system(stars.remove(0), generation_mode),
+            1 => Self::generate_single_star_system(stars.remove(0)),
             2 => {
                 let binary = BinaryTopology {
                     primary_index: 0,
@@ -438,7 +433,7 @@ impl StarSystem {
                     },
                 };
                 let topology = StellarTopology::Binary(binary.clone());
-                let planetary_regions = Self::build_binary_planetary_regions(&mut stars, &topology, 0, generation_mode);
+                let planetary_regions = Self::build_binary_planetary_regions(&mut stars, &topology, 0);
                 Self::from_hosted_systems_with_hierarchy(
                     String::new(),
                     vec![HostedSystem {
@@ -450,12 +445,12 @@ impl StarSystem {
                     Self::binary_hierarchy(&binary),
                 )
             }
-            3 => Self::generate_triple_star_system(log_level, stars, generation_mode),
-            _ => Self::generate_higher_multiplicity_star_system(log_level, stars, generation_mode),
+            3 => Self::generate_triple_star_system(log_level, stars),
+            _ => Self::generate_higher_multiplicity_star_system(log_level, stars),
         }
     }
 
-    fn generate_random_triple_star_system(log_level: u8, generation_mode: GenerationMode) -> Self {
+    fn generate_random_triple_star_system(log_level: u8) -> Self {
         let inner_separation_au = Self::sample_observed_binary_separation_au();
         let outer_separation_au = Self::sample_outer_companion_separation_au(inner_separation_au);
         let orbital_radii_au = [0.0, inner_separation_au, outer_separation_au];
@@ -471,11 +466,11 @@ impl StarSystem {
 
         Self::log_generated_stars(log_level, &stars);
         Self::log_multi_star_layout(log_level, &stars);
-        Self::generate_triple_star_system(log_level, std::mem::take(&mut stars), generation_mode)
+        Self::generate_triple_star_system(log_level, std::mem::take(&mut stars))
     }
 
-    fn generate_single_star_system(mut star: Star, generation_mode: GenerationMode) -> Self {
-        star.accrete_with_mode(generation_mode);
+    fn generate_single_star_system(mut star: Star) -> Self {
+        star.accrete();
         let stars = vec![star];
         let topology = StellarTopology::Single { primary_index: 0 };
         let planetary_regions = Self::collect_hosted_planetary_regions(&stars, &topology, 0);
@@ -492,11 +487,7 @@ impl StarSystem {
         )
     }
 
-    fn generate_random_higher_multiplicity_star_system(
-        log_level: u8,
-        star_count: usize,
-        generation_mode: GenerationMode,
-    ) -> Self {
+    fn generate_random_higher_multiplicity_star_system(log_level: u8, star_count: usize) -> Self {
         let mut companion_separations_au = Vec::with_capacity(star_count.saturating_sub(1));
         if star_count > 1 {
             let first_separation_au = Self::sample_observed_binary_separation_au();
@@ -529,10 +520,10 @@ impl StarSystem {
         }
 
         Self::log_multi_star_layout(log_level, &stars);
-        Self::generate_higher_multiplicity_star_system(log_level, stars, generation_mode)
+        Self::generate_higher_multiplicity_star_system(log_level, stars)
     }
 
-    fn generate_binary_star_system(log_level: u8, generation_mode: GenerationMode) -> Self {
+    fn generate_binary_star_system(log_level: u8) -> Self {
         let mut stars = vec![Star::random(0.0), Star::random(0.0)];
         for star in &stars {
             log!(
@@ -566,7 +557,7 @@ impl StarSystem {
             mass_ratio: stars[1].mass_in_sols / (stars[0].mass_in_sols + stars[1].mass_in_sols),
         };
         let topology = StellarTopology::Binary(binary.clone());
-        let planetary_regions = Self::build_binary_planetary_regions(&mut stars, &topology, 0, generation_mode);
+        let planetary_regions = Self::build_binary_planetary_regions(&mut stars, &topology, 0);
 
         Self::from_hosted_systems_with_hierarchy(
             String::new(),
@@ -580,7 +571,7 @@ impl StarSystem {
         )
     }
 
-    fn generate_triple_star_system(log_level: u8, mut stars: Vec<Star>, generation_mode: GenerationMode) -> Self {
+    fn generate_triple_star_system(log_level: u8, mut stars: Vec<Star>) -> Self {
         let layout = match Self::resolve_primary_centered_hierarchy(&stars) {
             Ok(layout) if layout.outer_orbits.len() == 1 => layout,
             Ok(_) => {
@@ -612,14 +603,10 @@ impl StarSystem {
             outer_orbit.gap_ratio
         );
 
-        Self::build_primary_centered_hierarchical_system(String::new(), stars, &layout, log_level, generation_mode)
+        Self::build_primary_centered_hierarchical_system(String::new(), stars, &layout, log_level)
     }
 
-    fn generate_higher_multiplicity_star_system(
-        log_level: u8,
-        stars: Vec<Star>,
-        generation_mode: GenerationMode,
-    ) -> Self {
+    fn generate_higher_multiplicity_star_system(log_level: u8, stars: Vec<Star>) -> Self {
         let star_count = stars.len();
         let layout = match Self::resolve_primary_centered_hierarchy(&stars) {
             Ok(layout) => layout,
@@ -659,7 +646,7 @@ impl StarSystem {
             outer_summary.join(", ")
         );
 
-        Self::build_primary_centered_hierarchical_system(String::new(), stars, &layout, log_level, generation_mode)
+        Self::build_primary_centered_hierarchical_system(String::new(), stars, &layout, log_level)
     }
 
     fn resolve_star_count(generation_config: &SystemGenerationConfig) -> usize {
@@ -956,7 +943,6 @@ impl StarSystem {
         mut stars: Vec<Star>,
         layout: &PrimaryCenteredHierarchyLayout,
         log_level: u8,
-        generation_mode: GenerationMode,
     ) -> Self {
         let hierarchy = Self::primary_centered_hierarchy(layout);
 
@@ -974,7 +960,7 @@ impl StarSystem {
 
         let hosted_system_count = layout.outer_orbits.len() + 1;
         let mut planetary_regions_by_hosted_system = vec![Vec::new(); hosted_system_count];
-        for region in Self::build_hierarchy_planetary_regions(log_level, &mut stars, &hierarchy, generation_mode) {
+        for region in Self::build_hierarchy_planetary_regions(log_level, &mut stars, &hierarchy) {
             let hosted_system_index = region.stable_region.host.hosted_system_index();
             if let Some(hosted_system_regions) = planetary_regions_by_hosted_system.get_mut(hosted_system_index) {
                 hosted_system_regions.push(region);
@@ -1220,7 +1206,6 @@ impl StarSystem {
         log_level: u8,
         stars: &mut [Star],
         hierarchy: &StellarHierarchy,
-        generation_mode: GenerationMode,
     ) -> Vec<PlanetaryRegion> {
         let mut planetary_regions = Vec::new();
         for (node_index, node) in hierarchy.nodes.iter().enumerate() {
@@ -1261,7 +1246,6 @@ impl StarSystem {
                             &parent_context.topology,
                             star_ref.hosted_system_index,
                             star_ref.star_index,
-                            generation_mode,
                             hierarchy_host,
                         )
                     } else {
@@ -1269,7 +1253,6 @@ impl StarSystem {
                             &star,
                             &parent_context.topology,
                             star_ref.hosted_system_index,
-                            generation_mode,
                             hierarchy_host,
                         )
                     };
@@ -1369,7 +1352,6 @@ impl StarSystem {
                             hosted_system_index,
                             &primary,
                             &secondary,
-                            generation_mode,
                             hierarchy_host,
                         )
                     } else {
@@ -1378,7 +1360,6 @@ impl StarSystem {
                             hosted_system_index,
                             &primary,
                             &secondary,
-                            generation_mode,
                             hierarchy_host,
                         )
                     };
@@ -1601,7 +1582,6 @@ impl StarSystem {
         stars: &mut [Star],
         topology: &StellarTopology,
         hosted_system_index: usize,
-        generation_mode: GenerationMode,
     ) -> Vec<PlanetaryRegion> {
         let StellarTopology::Binary(binary) = topology else {
             return Vec::new();
@@ -1616,7 +1596,6 @@ impl StarSystem {
             binary,
             hosted_system_index,
             0,
-            generation_mode,
             Some(HierarchyHostRef::Star {
                 node_index: 0,
                 global_star_index: 0,
@@ -1635,7 +1614,6 @@ impl StarSystem {
             binary,
             hosted_system_index,
             1,
-            generation_mode,
             Some(HierarchyHostRef::Star {
                 node_index: 1,
                 global_star_index: 1,
@@ -1654,7 +1632,6 @@ impl StarSystem {
             hosted_system_index,
             &primary,
             &secondary,
-            generation_mode,
             Some(HierarchyHostRef::Binary {
                 node_index: 2,
                 primary_child_index: 0,
@@ -1679,7 +1656,6 @@ impl StarSystem {
         binary: &BinaryTopology,
         hosted_system_index: usize,
         star_index: usize,
-        generation_mode: GenerationMode,
         hierarchy_host: Option<HierarchyHostRef>,
     ) -> Option<(PlanetaryRegion, AccretionDisk)> {
         let default_disk = AccretionDisk::new(&star.body, star.luminosity_in_sols);
@@ -1710,7 +1686,7 @@ impl StarSystem {
         }
 
         let mut bounded_disk = disk;
-        bounded_disk.accrete_with_mode(generation_mode);
+        bounded_disk.accrete();
         let region = Self::build_planetary_region(
             StableRegion {
                 host: PlanetHost::Circumstellar {
@@ -1764,7 +1740,6 @@ impl StarSystem {
         star: &Star,
         outer_binary: &BinaryTopology,
         hosted_system_index: usize,
-        generation_mode: GenerationMode,
         hierarchy_host: Option<HierarchyHostRef>,
     ) -> Option<(PlanetaryRegion, AccretionDisk)> {
         let default_disk = AccretionDisk::new(&star.body, star.luminosity_in_sols);
@@ -1793,7 +1768,7 @@ impl StarSystem {
             inner_au,
             outer_au,
         );
-        bounded_disk.accrete_with_mode(generation_mode);
+        bounded_disk.accrete();
         let region = Self::build_planetary_region(
             StableRegion {
                 host: PlanetHost::Circumstellar {
@@ -1859,7 +1834,6 @@ impl StarSystem {
         hosted_system_index: usize,
         primary: &Star,
         secondary: &Star,
-        generation_mode: GenerationMode,
         hierarchy_host: Option<HierarchyHostRef>,
     ) -> Option<PlanetaryRegion> {
         let host_mass_solar = primary.mass_in_sols + secondary.mass_in_sols;
@@ -1883,7 +1857,7 @@ impl StarSystem {
             inner_au,
             outer_au,
         );
-        bounded_disk.accrete_with_mode(generation_mode);
+        bounded_disk.accrete();
 
         Some(Self::build_planetary_region(
             StableRegion {
@@ -1912,7 +1886,6 @@ impl StarSystem {
         hosted_system_index: usize,
         primary: &Star,
         secondary: &Star,
-        generation_mode: GenerationMode,
         hierarchy_host: Option<HierarchyHostRef>,
     ) -> Option<PlanetaryRegion> {
         let host_mass_solar = primary.mass_in_sols + secondary.mass_in_sols;
@@ -1945,7 +1918,7 @@ impl StarSystem {
             inner_au,
             outer_au,
         );
-        bounded_disk.accrete_with_mode(generation_mode);
+        bounded_disk.accrete();
 
         Some(Self::build_planetary_region(
             StableRegion {
@@ -2352,9 +2325,8 @@ mod tests {
             mass_ratio: secondary.mass_in_sols / (primary.mass_in_sols + secondary.mass_in_sols),
         };
 
-        let region =
-            StarSystem::build_circumbinary_region(&binary, 0, &primary, &secondary, GenerationMode::Aggregation, None)
-                .expect("expected moderate binary to produce a circumbinary region");
+        let region = StarSystem::build_circumbinary_region(&binary, 0, &primary, &secondary, None)
+            .expect("expected moderate binary to produce a circumbinary region");
         assert!(region.stable_region.inner_au < region.stable_region.outer_au);
         assert!(matches!(region.stable_region.host, PlanetHost::Circumbinary { .. }));
         assert_eq!(
@@ -2394,24 +2366,10 @@ mod tests {
         };
         let thresholds = CondensationThresholds::default();
 
-        let dim_region = StarSystem::build_circumbinary_region(
-            &binary,
-            0,
-            &dim_primary,
-            &dim_secondary,
-            GenerationMode::Aggregation,
-            None,
-        )
-        .expect("expected dim binary to produce a circumbinary region");
-        let bright_region = StarSystem::build_circumbinary_region(
-            &binary,
-            0,
-            &bright_primary,
-            &bright_secondary,
-            GenerationMode::Aggregation,
-            None,
-        )
-        .expect("expected bright binary to produce a circumbinary region");
+        let dim_region = StarSystem::build_circumbinary_region(&binary, 0, &dim_primary, &dim_secondary, None)
+            .expect("expected dim binary to produce a circumbinary region");
+        let bright_region = StarSystem::build_circumbinary_region(&binary, 0, &bright_primary, &bright_secondary, None)
+            .expect("expected bright binary to produce a circumbinary region");
 
         assert_eq!(dim_region.stable_region.inner_au, bright_region.stable_region.inner_au);
         assert_eq!(dim_region.stable_region.outer_au, bright_region.stable_region.outer_au);
@@ -2479,8 +2437,7 @@ mod tests {
         StarSystem::configure_star_orbit(&mut secondary, 34.52, 0.378);
         StarSystem::configure_star_orbit(&mut tertiary, 425.78, 0.001);
 
-        let system =
-            StarSystem::generate_triple_star_system(0, vec![primary, secondary, tertiary], GenerationMode::Aggregation);
+        let system = StarSystem::generate_triple_star_system(0, vec![primary, secondary, tertiary]);
 
         assert_eq!(system.hosted_systems.len(), 2);
         assert!(matches!(system.hosted_systems[0].topology, StellarTopology::Binary(_)));
@@ -2615,8 +2572,7 @@ mod tests {
         StarSystem::configure_star_orbit(&mut secondary, 30.0, 0.6);
         StarSystem::configure_star_orbit(&mut tertiary, 60.0, 0.0);
 
-        let system =
-            StarSystem::generate_triple_star_system(0, vec![primary, secondary, tertiary], GenerationMode::Aggregation);
+        let system = StarSystem::generate_triple_star_system(0, vec![primary, secondary, tertiary]);
 
         assert_eq!(system.hosted_systems.len(), 1);
         assert!(matches!(
@@ -2642,11 +2598,8 @@ mod tests {
         StarSystem::configure_star_orbit(&mut tertiary, 120.0, 0.05);
         StarSystem::configure_star_orbit(&mut quaternary, 1_200.0, 0.02);
 
-        let system = StarSystem::generate_higher_multiplicity_star_system(
-            0,
-            vec![primary, secondary, tertiary, quaternary],
-            GenerationMode::Aggregation,
-        );
+        let system =
+            StarSystem::generate_higher_multiplicity_star_system(0, vec![primary, secondary, tertiary, quaternary]);
 
         assert_eq!(system.hosted_systems.len(), 3);
         assert!(matches!(system.hosted_systems[0].topology, StellarTopology::Binary(_)));
@@ -2799,11 +2752,8 @@ mod tests {
         StarSystem::configure_star_orbit(&mut tertiary, 30.0, 0.6);
         StarSystem::configure_star_orbit(&mut quaternary, 60.0, 0.0);
 
-        let system = StarSystem::generate_higher_multiplicity_star_system(
-            0,
-            vec![primary, secondary, tertiary, quaternary],
-            GenerationMode::Aggregation,
-        );
+        let system =
+            StarSystem::generate_higher_multiplicity_star_system(0, vec![primary, secondary, tertiary, quaternary]);
 
         assert_eq!(system.hosted_systems.len(), 1);
         assert!(matches!(
@@ -2846,7 +2796,6 @@ mod tests {
             0,
             &primary,
             &secondary,
-            GenerationMode::Aggregation,
             None,
         )
         .expect("expected hierarchical circumbinary region");
