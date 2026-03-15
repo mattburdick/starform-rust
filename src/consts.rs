@@ -14,7 +14,7 @@
 // const BAD_SPECTRA		2
 // const BAD_MOD		4
 
-pub const ECCENTRICITY_COEFF: f64 = 0.077; // Dole's was named "Q" with value 0.077
+pub const ECCENTRICITY_COEFF: f64 = 0.077; // "Q" in (Dole 1969)
 pub const CLOUD_ECCENTRICITY: f64 = 0.2;
 pub const PROTOPLANET_MASS: f64 = 1.0E-15; // Units of solar masses
 
@@ -24,11 +24,11 @@ pub const SOLAR_TEMPERATURE_IN_KELVIN: f64 = 5777.0; // Effective temperature of
 
 pub const GREENHOUSE_EFFECT_CONST: f64 = 0.93; // affects inner radius..
 
-/// "Parameter K" in Dole's paper. The ratio of gas to dust, typically in the range 50 to 100 (e.g. 1% to 2% of the cloud mass is dust)
+/// "Parameter K" (Dole 1969). The ratio of gas to dust, typically in the range 50 to 100 (e.g. 1% to 2% of the cloud mass is dust)
 pub const K: f64 = 50.0; // K = gas/dust ratio
 pub const B: f64 = 1.2E-5; // Used in Crit_mass calc
 
-/// "Parameter A" in Dole's paper
+/// "Parameter A" (Dole 1969)
 pub const DUST_DENSITY_COEFF: f64 = 7.1E-8;
 pub const ALPHA: f64 = 5.0; // Used in density calcs
 pub const N: f64 = 3.0; // Used in density calcs
@@ -86,7 +86,7 @@ pub mod unused_constants {
     pub const J: f64 = 1.46E-19; // Used in day-length calcs (cm2/sec2 g)
 
     //  Now for a few molecular weights (used for RMS velocity calcs):
-    //  This table is from Dole's book "Habitable Planets for Man", p. 38
+    //  This table is from (Dole 1964) "Habitable Planets for Man", p. 38
 
     pub const ATOMIC_HYDROGEN: f64 = 1.0; // H
     pub const MOL_HYDROGEN: f64 = 2.0; // H2

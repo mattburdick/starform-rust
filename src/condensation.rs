@@ -100,6 +100,37 @@ impl CondensationFractions {
     pub fn total(&self) -> f64 {
         self.refractory_metal + self.silicate_rock + self.water_ice + self.volatile_ices + self.gas
     }
+
+    /// All fractions zero — used as the initial accumulator for mass-weighted blending
+    /// (see feeding-zone mixing per Raymond 2008).
+    pub fn zero() -> Self {
+        Self {
+            refractory_metal: 0.0,
+            silicate_rock: 0.0,
+            water_ice: 0.0,
+            volatile_ices: 0.0,
+            gas: 0.0,
+        }
+    }
+
+    /// Returns a new `CondensationFractions` that is the mass-weighted blend of
+    /// `self` (weighted by `self_mass`) and `other` (weighted by `other_mass`).
+    /// Used to implement feeding-zone composition tracking (Raymond 2008).
+    pub fn mass_weighted_blend(&self, self_mass: f64, other: &Self, other_mass: f64) -> Self {
+        let total = self_mass + other_mass;
+        if total <= 0.0 {
+            return *self;
+        }
+        let w1 = self_mass / total;
+        let w2 = other_mass / total;
+        Self {
+            refractory_metal: w1 * self.refractory_metal + w2 * other.refractory_metal,
+            silicate_rock: w1 * self.silicate_rock + w2 * other.silicate_rock,
+            water_ice: w1 * self.water_ice + w2 * other.water_ice,
+            volatile_ices: w1 * self.volatile_ices + w2 * other.volatile_ices,
+            gas: w1 * self.gas + w2 * other.gas,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -208,5 +239,55 @@ mod tests {
 
         assert!(fractions.water_ice > 0.0);
         assert!(fractions.water_ice < 0.30);
+    }
+
+    #[test]
+    fn zero_fractions_are_all_zero() {
+        let z = CondensationFractions::zero();
+        assert!((z.total()).abs() < EPSILON);
+    }
+
+    #[test]
+    fn blend_with_zero_mass_returns_self() {
+        let rock = CondensationFractions::from_temperature(800.0, CondensationThresholds::default(), 25.0);
+        let ice = CondensationFractions::from_temperature(50.0, CondensationThresholds::default(), 25.0);
+
+        let result = rock.mass_weighted_blend(0.0, &ice, 0.0);
+        assert!((result.refractory_metal - rock.refractory_metal).abs() < EPSILON);
+    }
+
+    #[test]
+    fn blend_equal_masses_averages_fractions() {
+        let rock = CondensationFractions::from_temperature(800.0, CondensationThresholds::default(), 25.0);
+        let ice = CondensationFractions::from_temperature(50.0, CondensationThresholds::default(), 25.0);
+
+        let blended = rock.mass_weighted_blend(1.0, &ice, 1.0);
+
+        let expected_water = (rock.water_ice + ice.water_ice) / 2.0;
+        assert!((blended.water_ice - expected_water).abs() < EPSILON);
+        assert!((blended.total() - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn blend_heavily_weighted_toward_one_side() {
+        let rock = CondensationFractions::from_temperature(800.0, CondensationThresholds::default(), 25.0);
+        let ice = CondensationFractions::from_temperature(50.0, CondensationThresholds::default(), 25.0);
+
+        // 99% rock, 1% ice
+        let blended = rock.mass_weighted_blend(99.0, &ice, 1.0);
+        assert!(blended.water_ice > rock.water_ice);
+        assert!(blended.water_ice < ice.water_ice);
+        // Should be very close to rock
+        assert!((blended.silicate_rock - rock.silicate_rock).abs() < 0.01);
+    }
+
+    #[test]
+    fn blend_from_zero_accumulator_gives_other() {
+        let ice = CondensationFractions::from_temperature(50.0, CondensationThresholds::default(), 25.0);
+        let zero = CondensationFractions::zero();
+
+        let result = zero.mass_weighted_blend(0.0, &ice, 1.0);
+        assert!((result.water_ice - ice.water_ice).abs() < EPSILON);
+        assert!((result.volatile_ices - ice.volatile_ices).abs() < EPSILON);
     }
 }

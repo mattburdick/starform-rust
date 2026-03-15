@@ -187,3 +187,36 @@ starform-ui/
   ├── Cargo.toml
   └── src/
 ```
+
+## References
+
+Papers that have informed the algorithms and models in this crate. In-code
+comments use short author–year citations (e.g. `// (Raymond 2008)`) that
+refer back to this list.
+
+1. **Dole, S. H.** (1969). "Formation of Planetary Systems by Aggregation: A
+   Computer Simulation." *Icarus*, 13, 494–508.
+   — The original band-based accretion algorithm: protoplanets are injected at
+   random radii and sweep dust/gas from overlapping bands until accretion
+   stalls. Constants such as the eccentricity coefficient, dust density, and
+   critical mass limit originate here.
+
+2. **Fogg, M. J.** (1985). "Extra-Solar Planetary Systems: A Microcomputer
+   Simulation." *Journal of the British Interplanetary Society*, 38, 501–514.
+   — Extended Dole's model with volatile inventory estimation, atmosphere
+   retention, and environmental classification (used throughout `enviro.rs`).
+
+3. **Raymond, S. N.** (2008). "Terrestrial planet formation in extra-solar
+   planetary systems." *Proceedings IAU Symposium No. 249*, 233–250.
+   doi:10.1017/S1743921308016645.
+   — Demonstrates that terrestrial planet compositions are set by feeding-zone
+   width and radial mixing during late-stage accretion, not by local
+   condensation temperature alone. The feeding-zone composition tracking in
+   `accretion_disk.rs` and mass-weighted composition blending during collisions
+   in `body.rs` are based on this work.
+
+4. **Fortier, A., Alibert, Y., Carron, F., Benz, W., & Dittkrist, K.-M.**
+   (2013). "Planet formation models: the interplay with the planetesimal disc."
+   *Astronomy & Astrophysics*, 549, A44. doi:10.1051/0004-6361/201220241.
+   — Core-nucleated accretion with oligarchic growth; consulted for
+   planetesimal disc dynamics and gas accretion timing.

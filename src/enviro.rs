@@ -5,7 +5,7 @@
 //! class-based atmosphere and climate approximations.
 //!
 //! The atmosphere path in this module is intentionally hybrid: the code still uses the
-//! classic Starform/Fogg-style helpers for baseline pressure and temperature work, but layers
+//! classic Starform/(Fogg 1985)-style helpers for baseline pressure and temperature work, but layers
 //! a newer formation-aware atmosphere synthesis step on top.
 //!
 //! The rationale for that newer step is summarized in `starform-rust/README.md` under
@@ -280,7 +280,7 @@ fn greenhouse_effect_for_body(body: &Body, star: &Star, profile: VolatileRetenti
     profile.greenhouse_candidate && body.a < star.r_greenhouse
 }
 
-/// Fogg-style volatile inventory estimate using a body-specific retention profile.
+/// (Fogg 1985)-style volatile inventory estimate using a body-specific retention profile.
 ///
 /// This keeps the shape of the classic relation while allowing formation/climate-aware tuning.
 fn vol_inventory_with_profile(
@@ -1585,7 +1585,7 @@ pub fn volume_radius(mass: f64, density: f64) -> f64 {
 
 /// Returns the radius of the planet in kilometers.
 /// The mass passed in is in units of solar masses.
-/// This formula is listed as eq.9 in Fogg's article, although some typos
+/// This formula is listed as eq.9 in (Fogg 1985), although some typos
 /// crop up in that eq. See "The Internal Constitution of Planets", by
 /// Dr. D. S. Kothari, Mon. Not. of the Royal Astronomical Society, vol 96
 /// pp.833-843, 1936 for the derivation. Specifically, this is Kothari's
@@ -1657,11 +1657,11 @@ pub fn period(separation: f64, small_mass: f64, large_mass: f64) -> f64 {
     period_in_years * env::DAYS_IN_A_YEAR
 }
 
-/// Fogg's information for this routine came from Dole "Habitable Planets
+/// (Fogg 1985) information for this routine came from (Dole 1964) "Habitable Planets
 /// for Man", Blaisdell Publishing Company, NY, 1964. From this, he came
 /// up with his eq.12, which is the equation for the `base_angular_velocity`
 /// below. He then used an equation for the change in angular velocity per
-/// time (dw/dt) from P. Goldreich and S. Soter's paper "Q in the Solar
+/// time (dw/dt) from (Goldreich & Soter 1966) "Q in the Solar
 /// System" in Icarus, vol 5, pp.375-389 (1966). Using as a comparison the
 /// change in angular velocity for the Earth, Fogg has come up with an
 /// approximation for our new planet (his eq.13) and take that into account.

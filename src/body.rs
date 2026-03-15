@@ -28,6 +28,10 @@ pub struct Body {
     pub orbit_zone: OrbitalZone,
     pub density_in_grams_per_cc: f64,
     pub formation_inputs: Option<PlanetFormationInputs>,
+    /// Mass-weighted composition accumulated during dust sweeps and collisions.
+    /// Used by coalesce_body to derive the final formation_inputs, capturing
+    /// material from the full feeding zone rather than a single orbital radius.
+    pub accreted_fractions: Option<CondensationFractions>,
     pub accretion_disk: Option<Arc<RwLock<AccretionDisk>>>,
 }
 impl Default for Body {
@@ -43,6 +47,7 @@ impl Default for Body {
             orbit_zone: OrbitalZone::Zone1,
             density_in_grams_per_cc: 0.0,
             formation_inputs: None,
+            accreted_fractions: None,
             accretion_disk: None, // Start without an accretion disk
         }
     }
@@ -422,6 +427,17 @@ impl Body {
             0.0
         } else {
             new_e_squared.sqrt()
+        };
+
+        // Merge accreted compositions before the mass update so we can use
+        // pre-collision masses as weights (Raymond 2008: radial mixing via
+        // giant impacts delivers volatiles to inner planets).
+        self.accreted_fractions = match (self.accreted_fractions, other.accreted_fractions) {
+            (Some(self_frac), Some(other_frac)) => {
+                Some(self_frac.mass_weighted_blend(self.mass_in_sols, &other_frac, other.mass_in_sols))
+            }
+            (existing @ Some(_), None) | (None, existing @ Some(_)) => existing,
+            (None, None) => None,
         };
 
         // Update the mass

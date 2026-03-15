@@ -3,7 +3,7 @@
 use crate::random::get_random_number;
 use crate::{
     body::Body,
-    condensation::{CondensationThresholds, PlanetFormationInputs, RegionThermalProfile},
+    condensation::{CondensationFractions, CondensationThresholds, PlanetFormationInputs, RegionThermalProfile},
     consts, get_log_level, log,
     types::MassType,
 };
@@ -406,11 +406,6 @@ impl AccretionDisk {
         body.critical_mass_limit = body.critical_limit(self.luminosity_in_sols);
     }
 
-    fn sample_planet_formation_inputs(&self, orbital_radius_au: f64) -> PlanetFormationInputs {
-        self.thermal_profile
-            .sample_planet_formation_inputs(orbital_radius_au, CondensationThresholds::default())
-    }
-
     fn reset_generation_state(&mut self) {
         self.bodies.clear();
         self.bands.clear();
@@ -464,7 +459,25 @@ impl AccretionDisk {
             body.mass_type = MassType::GasGiant;
         }
 
-        let formation_inputs = self.sample_planet_formation_inputs(body.a);
+        // Derive formation inputs from the body's feeding-zone composition
+        // (accumulated across all dust sweeps and collisions) rather than
+        // sampling once at the final orbital radius.  (Raymond 2008) shows
+        // that bulk composition is set by feeding-zone width and radial
+        // mixing, not local condensation temperature alone.  The temperature
+        // still reflects the final orbit for climate/zone calculations.
+        let temperature_k = self.thermal_profile.temperature_at_au(body.a);
+        let condensation_fractions = body.accreted_fractions.unwrap_or_else(|| {
+            // Fallback: sample at final radius (should not happen in practice).
+            CondensationFractions::from_temperature(
+                temperature_k,
+                CondensationThresholds::default(),
+                self.thermal_profile.transition_width_k,
+            )
+        });
+        let formation_inputs = PlanetFormationInputs {
+            temperature_k,
+            condensation_fractions,
+        };
         body.initialize_from_formation_inputs(formation_inputs);
         (body, collisions)
     }
@@ -506,7 +519,20 @@ impl AccretionDisk {
         loop {
             loop_count += 1;
             let old_mass = body.mass_in_sols;
-            body.mass_in_sols = self.collect_dust(&body);
+            let (new_mass, sweep_composition) = self.collect_dust(&body);
+
+            // Accumulate the feeding-zone composition from this sweep pass
+            // (Raymond 2008: radial mixing across the sweep zone).
+            if let Some(sweep_fracs) = sweep_composition {
+                let mass_added = new_mass - old_mass;
+                body.accreted_fractions = Some(if let Some(existing) = body.accreted_fractions {
+                    existing.mass_weighted_blend(old_mass, &sweep_fracs, mass_added)
+                } else {
+                    sweep_fracs
+                });
+            }
+
+            body.mass_in_sols = new_mass;
             if body.mass_in_sols >= body.critical_mass_limit {
                 body.mass_type = MassType::GasGiant;
             }
@@ -586,7 +612,12 @@ impl AccretionDisk {
     /// let new_mass = accretion_disk.collect_dust(&protoplanet);
     /// println!("New mass after accretion: {}", new_mass);
     /// ```
-    pub fn collect_dust(&mut self, protoplanet: &Body) -> f64 {
+    ///
+    /// Returns `(new_total_mass, Option<composition_of_newly_collected_material>)`.
+    /// The composition is a mass-weighted blend of material sampled at the
+    /// midpoint of each swept dust band, capturing the feeding zone's radial
+    /// diversity rather than a single-point sample.
+    pub fn collect_dust(&mut self, protoplanet: &Body) -> (f64, Option<CondensationFractions>) {
         // The injected mass has inner and outer effect limits based on size of the mass, its orbit, and eccentricity.
         // We will accumulate mass from all the dust and gas bands into "mass".
 
@@ -597,6 +628,11 @@ impl AccretionDisk {
             Body::gravitational_effect_limits(protoplanet.a, protoplanet.e, protoplanet.mass_in_sols);
 
         let mut new_mass = protoplanet.mass_in_sols;
+
+        // Feeding zone composition tracking: accumulate a mass-weighted blend
+        // of condensation fractions from across each swept band.
+        let mut swept_mass = 0.0_f64;
+        let mut swept_fractions = CondensationFractions::zero();
 
         // Sweeping out dust from part of a band may create gaps represented as new bands that need to be added to the list.
         // We'll store them in a queue and add them after we've iterated over all the bands.
@@ -654,7 +690,20 @@ impl AccretionDisk {
             let ratio = self.cached_gas_to_dust_ratio;
             let density = ratio * protoplanet.local_dust_density
                 / (1.0 + (protoplanet.critical_mass_limit / new_mass).sqrt() * (ratio - 1.0));
-            new_mass += volume * density;
+            let mass_from_band = volume * density;
+            new_mass += mass_from_band;
+
+            // Sample composition at the midpoint of the swept portion of this
+            // band and blend it into the running mass-weighted accumulator
+            // (Raymond 2008: feeding-zone mixing).
+            let swept_midpoint_au = (band.inner_edge + band.outer_edge) / 2.0;
+            let band_fractions = CondensationFractions::from_temperature(
+                self.thermal_profile.temperature_at_au(swept_midpoint_au),
+                CondensationThresholds::default(),
+                self.thermal_profile.transition_width_k,
+            );
+            swept_fractions = swept_fractions.mass_weighted_blend(swept_mass, &band_fractions, mass_from_band);
+            swept_mass += mass_from_band;
         }
 
         // Apply all changes here
@@ -668,7 +717,8 @@ impl AccretionDisk {
         // // Now update `dust_left` based on whether any band still has dust.
         // self.dust_left = self.bands.iter().any(|band| band.dust_present);
 
-        new_mass
+        let sweep_composition = if swept_mass > 0.0 { Some(swept_fractions) } else { None };
+        (new_mass, sweep_composition)
     }
 
     /// Creates a new `AccretionDisk` around a primary body with specified luminosity.
