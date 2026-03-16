@@ -629,11 +629,6 @@ impl AccretionDisk {
 
         let mut new_mass = protoplanet.mass_in_sols;
 
-        // Feeding zone composition tracking: accumulate a mass-weighted blend
-        // of condensation fractions from across each swept band.
-        let mut swept_mass = 0.0_f64;
-        let mut swept_fractions = CondensationFractions::zero();
-
         // Sweeping out dust from part of a band may create gaps represented as new bands that need to be added to the list.
         // We'll store them in a queue and add them after we've iterated over all the bands.
         let mut new_bands: VecDeque<Band> = VecDeque::new();
@@ -692,18 +687,6 @@ impl AccretionDisk {
                 / (1.0 + (protoplanet.critical_mass_limit / new_mass).sqrt() * (ratio - 1.0));
             let mass_from_band = volume * density;
             new_mass += mass_from_band;
-
-            // Sample composition at the midpoint of the swept portion of this
-            // band and blend it into the running mass-weighted accumulator
-            // (Raymond 2008: feeding-zone mixing).
-            let swept_midpoint_au = (band.inner_edge + band.outer_edge) / 2.0;
-            let band_fractions = CondensationFractions::from_temperature(
-                self.thermal_profile.temperature_at_au(swept_midpoint_au),
-                CondensationThresholds::default(),
-                self.thermal_profile.transition_width_k,
-            );
-            swept_fractions = swept_fractions.mass_weighted_blend(swept_mass, &band_fractions, mass_from_band);
-            swept_mass += mass_from_band;
         }
 
         // Apply all changes here
@@ -717,7 +700,20 @@ impl AccretionDisk {
         // // Now update `dust_left` based on whether any band still has dust.
         // self.dust_left = self.bands.iter().any(|band| band.dust_present);
 
-        let sweep_composition = if swept_mass > 0.0 { Some(swept_fractions) } else { None };
+        // Sample feeding-zone composition once at the sweep zone midpoint
+        // (Raymond 2008: feeding-zone mixing).  This is computed outside the
+        // band loop to avoid repeated temperature/condensation work per band.
+        let mass_collected = new_mass - protoplanet.mass_in_sols;
+        let sweep_composition = if mass_collected > 0.0 {
+            let sweep_midpoint_au = (r_inner + r_outer) / 2.0;
+            Some(CondensationFractions::from_temperature(
+                self.thermal_profile.temperature_at_au(sweep_midpoint_au),
+                CondensationThresholds::default(),
+                self.thermal_profile.transition_width_k,
+            ))
+        } else {
+            None
+        };
         (new_mass, sweep_composition)
     }
 
