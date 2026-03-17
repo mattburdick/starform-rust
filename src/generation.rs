@@ -99,7 +99,7 @@ impl Default for SystemGenerationConfig {
             system_preset: SystemGenerationPreset::Custom,
             host_star_preset: HostStarPreset::RandomObserved,
             multiplicity_preset: MultiplicityPreset::Observed,
-            star_count_mode: StarCountMode::Sampled,
+            star_count_mode: StarCountMode::Exact,
             star_count: 1,
             separation_mode: SeparationMode::Sampled,
             binary_separation_au: 24.0,
